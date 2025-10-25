@@ -1,6 +1,8 @@
-import os # <-- ¡ESTA ES LA LÍNEA QUE FALTABA!
+# boveda.py
+import os
 import sqlite3
 from datetime import datetime
+import utils  # <-- ¡NUEVO! Importamos nuestro módulo de utilidades
 
 def consultar_boveda():
     """Calcula y muestra el estado actual de la bóveda desde la BD."""
@@ -26,6 +28,17 @@ def consultar_boveda():
 def fondear_boveda():
     """Registra una nueva transacción de compra en la base de datos."""
     print("\n--- Fondear Bóveda (Registrar Compra) ---")
+    
+    # <-- ¡CAMBIO CLAVE! Primero, obtenemos el ciclo activo.
+    ciclo_id_activo = utils.obtener_ciclo_activo_id()
+    
+    if not ciclo_id_activo:
+        print("\nERROR: No se encontró un ciclo de trabajo activo.")
+        print("Por favor, inicia un ciclo desde el 'Módulo Operador' [Opción 1] antes de registrar una compra.")
+        return
+        
+    print(f"Nota: Los fondos se añadirán al ciclo activo #{ciclo_id_activo}.")
+
     try:
         cantidad = float(input("Ingrese la cantidad de cripto comprado: "))
         precio = float(input("Ingrese el precio de compra por unidad (USD): "))
@@ -36,13 +49,13 @@ def fondear_boveda():
         conn = sqlite3.connect('arbitraje.db')
         cursor = conn.cursor()
         
-        # Asumimos que la compra pertenece al ciclo activo (ciclo_id = 1 por ahora)
         fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
+        # <-- ¡CAMBIO CLAVE! Usamos el ID del ciclo activo en lugar de '1'.
         cursor.execute("""
             INSERT INTO transacciones (ciclo_id, fecha, tipo, cantidad_cripto, precio_unitario, comision_pct)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (1, fecha_actual, 'compra', cantidad, precio, 0)) # Comisión 0 para compras
+        """, (ciclo_id_activo, fecha_actual, 'compra', cantidad, precio, 0)) # Comisión 0 para compras
         
         conn.commit()
         conn.close()

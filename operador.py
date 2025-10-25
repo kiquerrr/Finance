@@ -1,5 +1,7 @@
+# operador.py
 import sqlite3
 from datetime import datetime
+import utils  # <-- ¡NUEVO! Importamos nuestro módulo de utilidades
 
 # =================================================
 # FUNCIONES AUXILIARES DEL MÓDULO
@@ -56,7 +58,6 @@ def analizar_mercado(costo_promedio):
     print(f"\nUsando {porcentaje_comision}% de comisión y un objetivo de {porcentaje_ganancia_objetivo}% de ganancia...")
     print(f"El precio sugerido es: {precio_sugerido:.4f}")
     
-    # <-- ¡VALIDACIONES AVANZADAS RESTAURADAS!
     while True:
         try:
             precio_elegido = float(input("\n¿Qué precio vas a publicar en tu anuncio?: "))
@@ -64,29 +65,22 @@ def analizar_mercado(costo_promedio):
                 print("Error: El precio debe ser un número positivo.")
                 continue
 
-            # Calculamos la ganancia neta real que se obtendría con el precio elegido
             ganancia_neta_real_pct = (((precio_elegido * factor_comision) / costo_promedio) - 1) * 100
 
-            # Caso 1: Pérdida
             if ganancia_neta_real_pct < 0:
                 print(f"¡ADVERTENCIA GRAVE! Con el precio {precio_elegido:.4f} tu ganancia neta será NEGATIVA: {ganancia_neta_real_pct:.2f}%.")
-                confirmacion = input("¿Estás seguro de que quieres operar con pérdidas? (s/n): ")
-                if confirmacion.lower() in ['s', 'si']:
-                    break # El usuario confirma la pérdida
+                if utils.confirmar_accion("¿Estás seguro de que quieres operar con pérdidas?"):
+                    break 
             
-            # Caso 2: Meta no alcanzada
             elif ganancia_neta_real_pct < porcentaje_ganancia_objetivo:
                 print(f"¡ADVERTENCIA! Con el precio {precio_elegido:.4f} tu ganancia neta será de solo un {ganancia_neta_real_pct:.2f}%. No alcanzarás tu meta del {porcentaje_ganancia_objetivo}%.")
                 
-                # Caso 2.1: Margen muy bajo
                 if 0 < ganancia_neta_real_pct < 0.5:
                     print("Este margen es muy bajo y podría resultar en pérdidas por comisiones en transacciones pequeñas.")
                 
-                confirmacion = input("¿Aún así deseas usar este precio? (s/n): ")
-                if confirmacion.lower() in ['s', 'si']:
-                    break # El usuario confirma un precio por debajo del objetivo
+                if utils.confirmar_accion("¿Aún así deseas usar este precio?"):
+                    break 
             
-            # Caso 3: Precio válido
             else:
                 print(f"Buen precio. Tu ganancia neta estimada será de un {ganancia_neta_real_pct:.2f}%.")
                 break
@@ -109,12 +103,10 @@ def registrar_ventas_del_dia(ciclo_id, precio_venta, comision):
             break
 
         print(f"\nCapital actual en bóveda: {cripto_disponible:.4f} cripto.")
-        respuesta = input(f"¿Deseas registrar la venta #{ventas_realizadas + 1}? (s/n): ")
-        if respuesta.lower() in ['s', 'si']:
-            # Lógica de venta
+        if utils.confirmar_accion(f"¿Deseas registrar la venta #{ventas_realizadas + 1}?"):
             while True:
                 respuesta_cantidad = input(f"  Ingresa la cantidad de cripto vendido (o 'todo'): ")
-                if respuesta_cantidad.lower() == 'todo':
+                if respuesta_cantidad.lower().strip() == 'todo':
                     cantidad_vendida = cripto_disponible
                     print(f"  Vendiendo todo el capital restante: {cantidad_vendida:.4f}")
                     break
@@ -129,7 +121,6 @@ def registrar_ventas_del_dia(ciclo_id, precio_venta, comision):
                 except ValueError:
                     print("  Error: Ingrese un número o la palabra 'todo'.")
             
-            # Registro en BD
             conn = sqlite3.connect('arbitraje.db')
             cursor = conn.cursor()
             fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -141,19 +132,15 @@ def registrar_ventas_del_dia(ciclo_id, precio_venta, comision):
             conn.close()
             print("  ¡Venta registrada con éxito!")
             ventas_realizadas += 1
-        elif respuesta.lower() in ['n', 'no']:
-            break
         else:
-            print("  Error: Respuesta no válida. Inténtalo de nuevo.")
+            break
             
     print("\nFase de contabilidad del día finalizada.")
-
 
 def finalizar_ciclo_activo(ciclo_id):
     """Calcula la ganancia neta automáticamente y cierra el ciclo."""
     print("\n--- Finalizando Ciclo de Trabajo ---")
-    respuesta = input(f"¿Estás seguro de que deseas cerrar el ciclo #{ciclo_id}? (s/n): ")
-    if respuesta.lower() in ['s', 'si']:
+    if utils.confirmar_accion(f"¿Estás seguro de que deseas cerrar el ciclo #{ciclo_id}?"):
         conn = sqlite3.connect('arbitraje.db')
         cursor = conn.cursor()
 
@@ -181,17 +168,14 @@ def finalizar_ciclo_activo(ciclo_id):
 
 def verificar_o_crear_ciclo():
     """Busca o crea un ciclo activo y devuelve su ID."""
-    conn = sqlite3.connect('arbitraje.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM ciclos WHERE estado = 'activo'")
-    ciclo_activo = cursor.fetchone()
-    if ciclo_activo:
-        conn.close()
-        return ciclo_activo[0]
+    ciclo_activo_id = utils.obtener_ciclo_activo_id() # Usamos la nueva función
+    if ciclo_activo_id:
+        return ciclo_activo_id
     else:
         print("\nNo se encontró ningún ciclo de trabajo activo.")
-        respuesta = input("¿Deseas iniciar un nuevo ciclo? (s/n): ")
-        if respuesta.lower() in ['s', 'si']:
+        if utils.confirmar_accion("¿Deseas iniciar un nuevo ciclo?"):
+            conn = sqlite3.connect('arbitraje.db')
+            cursor = conn.cursor()
             fecha_hoy = datetime.now().strftime("%Y-%m-%d")
             cursor.execute("INSERT INTO ciclos (fecha_inicio, estado) VALUES (?, ?)", (fecha_hoy, 'activo'))
             nuevo_id = cursor.lastrowid
@@ -200,7 +184,6 @@ def verificar_o_crear_ciclo():
             print(f"Nuevo ciclo #{nuevo_id} iniciado con fecha {fecha_hoy}.")
             return nuevo_id
         else:
-            conn.close()
             return None
 
 def ejecutar_dia_de_trabajo():
@@ -223,8 +206,7 @@ def ejecutar_dia_de_trabajo():
             print("\nNo hay capital en la bóveda para operar hoy. Usa el Módulo de Bóveda para fondear.")
 
         print("\n--- Gestión del Ciclo ---")
-        cierre = input("¿Deseas finalizar y cerrar este ciclo de trabajo? (s/n): ")
-        if cierre.lower() in ['s', 'si']:
+        if utils.confirmar_accion("¿Deseas finalizar y cerrar este ciclo de trabajo?"):
             finalizar_ciclo_activo(ciclo_id)
     else:
         print("\nNo hay un ciclo activo para trabajar. Volviendo al menú principal.")
