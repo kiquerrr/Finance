@@ -19,31 +19,69 @@ def obtener_config_db(clave):
         return float(resultado[0]) if resultado else 2.0
 
 def consultar_capital_actual(ciclo_id):
-    """Calcula el cripto total y el costo promedio para el ciclo activo."""
+    """Calcula el capital por cripto para el ciclo activo."""
     try:
         conn = sqlite3.connect('arbitraje.db')
         cursor = conn.cursor()
         
+        # Capital por cada cripto
         cursor.execute("""
-            SELECT SUM(CASE WHEN tipo = 'compra' THEN cantidad_cripto ELSE -cantidad_cripto END) 
-            FROM transacciones WHERE ciclo_id = ?
+            SELECT cripto,
+                   SUM(CASE WHEN tipo = 'compra' THEN cantidad_cripto ELSE -cantidad_cripto END) as cantidad,
+                   SUM(CASE WHEN tipo = 'compra' THEN monto_fiat ELSE -monto_fiat END) as valor_fiat
+            FROM transacciones 
+            WHERE ciclo_id = ?
+            GROUP BY cripto
+            HAVING cantidad > 0.0001
         """, (ciclo_id,))
-        cripto_actual = cursor.fetchone()[0] or 0.0
-
-        cursor.execute("""
-            SELECT SUM(CASE WHEN tipo = 'compra' THEN cantidad_cripto * precio_unitario 
-                           ELSE -(cantidad_cripto * precio_unitario) END) 
-            FROM transacciones WHERE ciclo_id = ?
-        """, (ciclo_id,))
-        costo_total_actual = cursor.fetchone()[0] or 0.0
-
+        
+        criptos = cursor.fetchall()
         conn.close()
         
-        costo_promedio = (costo_total_actual / cripto_actual) if cripto_actual > 0.0001 else 0
-        return cripto_actual, costo_promedio
+        # Retornar diccionario con info por cripto
+        capital_info = {}
+        total_fiat = 0
+        
+        for cripto_data in criptos:
+            cripto = cripto_data[0]
+            cantidad = cripto_data[1]
+            valor = cripto_data[2]
+            total_fiat += valor
+            
+            capital_info[cripto] = {
+                'cantidad': cantidad,
+                'valor': valor,
+                'costo_promedio': valor / cantidad if cantidad > 0 else 0
+            }
+        
+        capital_info['total_fiat'] = total_fiat
+        return capital_info
+        
     except sqlite3.Error as e:
         print(f"Error al consultar capital: {e}")
-        return 0.0, 0.0
+        return {'total_fiat': 0}
+
+def mostrar_capital_detallado(capital_info):
+    """Muestra el capital de forma detallada por cripto."""
+    import criptomonedas
+    
+    if not capital_info or capital_info.get('total_fiat', 0) == 0:
+        print("Capital inicial del dia: Sin capital")
+        return
+    
+    print("Capital inicial del dia:")
+    
+    for cripto, info in capital_info.items():
+        if cripto == 'total_fiat':
+            continue
+        
+        info_cripto = criptomonedas.obtener_info_cripto(cripto)
+        nombre = info_cripto['nombre'] if info_cripto else cripto
+        cantidad_fmt = criptomonedas.formatear_cantidad_cripto(info['cantidad'], cripto)
+        
+        print(f"  - {cantidad_fmt} {nombre} ({cripto}) = ${info['valor']:.2f}")
+    
+    print(f"  Total: ${capital_info['total_fiat']:.2f} USD")
 
 def consultar_capital_otros_ciclos():
     """Verifica si hay capital en ciclos anteriores."""
