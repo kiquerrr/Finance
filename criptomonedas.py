@@ -6,21 +6,21 @@ CRIPTOS_DISPONIBLES = {
         'simbolo': 'USDT',
         'decimales': 4,
         'tipo': 'Stablecoin',
-        'descripcion': 'Moneda estable vinculada al dólar'
+        'descripcion': 'Moneda estable vinculada al dolar'
     },
     'USDC': {
         'nombre': 'USD Coin',
         'simbolo': 'USDC',
         'decimales': 4,
         'tipo': 'Stablecoin',
-        'descripcion': 'Moneda estable respaldada por dólares'
+        'descripcion': 'Moneda estable respaldada por dolares'
     },
     'BTC': {
         'nombre': 'Bitcoin',
         'simbolo': 'BTC',
         'decimales': 8,
         'tipo': 'Criptomoneda',
-        'descripcion': 'La primera y más conocida criptomoneda'
+        'descripcion': 'La primera y mas conocida criptomoneda'
     },
     'ETH': {
         'nombre': 'Ethereum',
@@ -48,11 +48,11 @@ CRIPTOS_DISPONIBLES = {
 def listar_criptos():
     """Muestra lista de criptos disponibles."""
     print("\n" + "=" * 60)
-    print("💰 CRIPTOMONEDAS DISPONIBLES")
+    print("CRIPTOMONEDAS DISPONIBLES")
     print("=" * 60)
     
     for i, (codigo, info) in enumerate(CRIPTOS_DISPONIBLES.items(), 1):
-        emoji = "🪙" if info['tipo'] == 'Stablecoin' else "₿"
+        emoji = "$" if info['tipo'] == 'Stablecoin' else "B"
         print(f"\n{emoji} [{i}] {info['nombre']} ({codigo})")
         print(f"    Tipo: {info['tipo']}")
         print(f"    {info['descripcion']}")
@@ -65,23 +65,23 @@ def seleccionar_cripto():
     
     while True:
         try:
-            opcion = int(input("\nSelecciona una opción (número): "))
+            opcion = int(input("\nSelecciona una opcion (numero): "))
             if 1 <= opcion <= len(CRIPTOS_DISPONIBLES):
                 cripto_codigo = list(CRIPTOS_DISPONIBLES.keys())[opcion - 1]
                 info = CRIPTOS_DISPONIBLES[cripto_codigo]
-                print(f"\n✅ Seleccionaste: {info['nombre']} ({cripto_codigo})")
+                print(f"\nSeleccionaste: {info['nombre']} ({cripto_codigo})")
                 return cripto_codigo
             else:
-                print(f"❌ Opción inválida. Elige entre 1 y {len(CRIPTOS_DISPONIBLES)}")
+                print(f"Opcion invalida. Elige entre 1 y {len(CRIPTOS_DISPONIBLES)}")
         except ValueError:
-            print("❌ Ingresa un número válido.")
+            print("Ingresa un numero valido.")
 
 def obtener_info_cripto(codigo):
-    """Obtiene información de una cripto."""
+    """Obtiene informacion de una cripto."""
     return CRIPTOS_DISPONIBLES.get(codigo.upper())
 
 def formatear_cantidad_cripto(cantidad, cripto):
-    """Formatea cantidad según los decimales de la cripto."""
+    """Formatea cantidad segun los decimales de la cripto."""
     info = obtener_info_cripto(cripto)
     if info:
         decimales = info['decimales']
@@ -89,10 +89,10 @@ def formatear_cantidad_cripto(cantidad, cripto):
     return f"{cantidad:.4f}"
 
 def validar_cripto(codigo):
-    """Valida si un código de cripto existe."""
+    """Valida si un codigo de cripto existe."""
     return codigo.upper() in CRIPTOS_DISPONIBLES
 
 def obtener_simbolo(cripto):
-    """Obtiene el símbolo de una cripto."""
+    """Obtiene el simbolo de una cripto."""
     info = obtener_info_cripto(cripto)
     return info['simbolo'] if info else cripto
