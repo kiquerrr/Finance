@@ -19,23 +19,42 @@ def crear_directorios():
         print(f"✅ Directorio '{DIRECTORIO_EXPORTS}/' creado.")
 
 def crear_base_de_datos():
-    """Crea la base de datos y las tablas si no existen."""
+    """Crea la base de datos y las tablas si no existen (Esquema v3.0)."""
     try:
         crear_directorios()
         
         conn = sqlite3.connect('arbitraje.db')
         cursor = conn.cursor()
 
-        # Tabla de ciclos
+        # Tabla de ciclos (v3.0)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS ciclos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 fecha_inicio TEXT NOT NULL,
                 fecha_fin TEXT,
                 cripto TEXT DEFAULT 'USDT',
-                inversion_total REAL DEFAULT 0,
+                inversion_inicial REAL DEFAULT 0,
                 ganancia_neta_total REAL DEFAULT 0,
-                estado TEXT NOT NULL CHECK(estado IN ('activo', 'completado'))
+                estado TEXT NOT NULL CHECK(estado IN ('activo', 'completado', 'temporal')),
+                dias_planificados INTEGER DEFAULT 15
+            )
+        ''')
+
+        # Tabla de dias_operacion (NUEVA v3.0)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS dias_operacion (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ciclo_id INTEGER NOT NULL,
+                numero_dia INTEGER NOT NULL,
+                fecha TEXT NOT NULL,
+                capital_inicial REAL DEFAULT 0,
+                capital_final REAL DEFAULT 0,
+                ganancia_dia REAL DEFAULT 0,
+                num_ventas INTEGER DEFAULT 0,
+                precio_operacion REAL DEFAULT 0,
+                estado TEXT NOT NULL CHECK(estado IN ('abierto', 'cerrado')),
+                FOREIGN KEY (ciclo_id) REFERENCES ciclos (id),
+                UNIQUE(ciclo_id, numero_dia)
             )
         ''')
 
@@ -47,11 +66,12 @@ def crear_base_de_datos():
             )
         ''')
 
-        # Tabla de transacciones (MEJORADA con cripto)
+        # Tabla de transacciones (v3.0)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS transacciones (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ciclo_id INTEGER NOT NULL,
+                dia_id INTEGER,
                 fecha TEXT NOT NULL,
                 tipo TEXT NOT NULL CHECK(tipo IN ('compra', 'venta')),
                 cripto TEXT NOT NULL,
@@ -60,11 +80,12 @@ def crear_base_de_datos():
                 precio_venta_real REAL DEFAULT 0,
                 comision_pct REAL NOT NULL CHECK(comision_pct >= 0),
                 monto_fiat REAL DEFAULT 0,
-                FOREIGN KEY (ciclo_id) REFERENCES ciclos (id)
+                FOREIGN KEY (ciclo_id) REFERENCES ciclos (id),
+                FOREIGN KEY (dia_id) REFERENCES dias_operacion (id)
             )
         ''')
 
-        # Tabla de APIs (NUEVA)
+        # Tabla de APIs
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS apis_config (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,34 +101,28 @@ def crear_base_de_datos():
         ''')
 
         # Insertar valores por defecto
-        cursor.execute("""
-            INSERT OR IGNORE INTO configuracion (clave, valor) 
-            VALUES ('comision_defecto', '0.35')
-        """)
-        cursor.execute("""
-            INSERT OR IGNORE INTO configuracion (clave, valor) 
-            VALUES ('ganancia_defecto', '2.0')
-        """)
-        cursor.execute("""
-            INSERT OR IGNORE INTO configuracion (clave, valor) 
-            VALUES ('cripto_defecto', 'USDT')
-        """)
+        default_configs = [
+            ('comision_defecto', '0.35'),
+            ('ganancia_defecto', '2.0'),
+            ('cripto_defecto', 'USDT'),
+            ('ventas_minimas_dia', '3'),
+            ('ventas_maximas_dia', '5'),
+            ('dias_ciclo_defecto', '15')
+        ]
+        cursor.executemany("INSERT OR IGNORE INTO configuracion (clave, valor) VALUES (?, ?)", default_configs)
 
         conn.commit()
         conn.close()
         
         print("=" * 60)
-        print("✅ Base de datos verificada/creada con éxito")
-        print("=" * 60)
-        print("📊 Tablas creadas:")
-        print("   - ciclos (con soporte multi-cripto)")
-        print("   - transacciones (mejorada)")
-        print("   - configuracion")
-        print("   - apis_config (nueva)")
+        print("✅ Base de datos verificada/creada con éxito (Esquema v3.0)")
         print("=" * 60)
         
     except sqlite3.Error as e:
         print(f"❌ Error al crear la base de datos: {e}")
+
+# ... (El resto de las funciones de database.py como hacer_backup_db, etc., van aquí.
+# No las repito por brevedad, ya que no cambian, pero asegúrate de tenerlas en tu archivo)
 
 def verificar_integridad_db():
     """Verifica la integridad de la base de datos."""
@@ -165,7 +180,6 @@ def hacer_backup_db():
         print(f"📁 Ubicación: {nombre_backup}")
         print(f"💾 Tamaño: {size_kb:.2f} KB")
         
-        # Limpiar backups antiguos (mantener solo los últimos 10)
         limpiar_backups_antiguos()
         
     except Exception as e:
@@ -264,7 +278,6 @@ def restaurar_backup():
         
         backup_seleccionado = backups[num_backup - 1]
         
-        # Confirmación final
         print(f"\n📋 Vas a restaurar:")
         print(f"   {backup_seleccionado['nombre']}")
         print(f"   Fecha: {backup_seleccionado['fecha'].strftime('%Y-%m-%d %H:%M:%S')}")
@@ -275,14 +288,12 @@ def restaurar_backup():
             print("❌ Operación cancelada.")
             return
         
-        # Crear backup de la BD actual
         print("\n🔄 Creando backup de seguridad de la BD actual...")
         fecha_seguridad = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_seguridad = f"{DIRECTORIO_BACKUPS}/pre_restauracion_{fecha_seguridad}.db"
         shutil.copy2('arbitraje.db', backup_seguridad)
         print(f"✅ Backup de seguridad creado: {backup_seguridad}")
         
-        # Restaurar el backup seleccionado
         print(f"\n🔄 Restaurando {backup_seleccionado['nombre']}...")
         shutil.copy2(backup_seleccionado['ruta'], 'arbitraje.db')
         

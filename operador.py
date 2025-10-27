@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
+import dias
 
 # =================================================
-# FUNCIONES AUXILIARES DEL MÓDULO
+# FUNCIONES AUXILIARES DEL MODULO
 # =================================================
 
 def obtener_config_db(clave):
-    """Función auxiliar para leer la configuración desde la BD."""
+    """Funcion auxiliar para leer la configuracion desde la BD."""
     conn = sqlite3.connect('arbitraje.db')
     cursor = conn.cursor()
     cursor.execute("SELECT valor FROM configuracion WHERE clave = ?", (clave,))
@@ -17,14 +18,61 @@ def obtener_config_db(clave):
         return float(resultado[0]) if resultado else 0.35
     if clave == 'ganancia_defecto':
         return float(resultado[0]) if resultado else 2.0
+    if clave == 'ventas_minimas_dia':
+        return int(resultado[0]) if resultado else 3
+    if clave == 'ventas_maximas_dia':
+        return int(resultado[0]) if resultado else 5
+    if clave == 'dias_ciclo_defecto':
+        return int(resultado[0]) if resultado else 15
+    return None
 
-def consultar_capital_actual(ciclo_id):
-    """Calcula el capital por cripto para el ciclo activo."""
+def obtener_info_ciclo_completa(ciclo_id):
+    """Obtiene informacion completa del ciclo global."""
     try:
         conn = sqlite3.connect('arbitraje.db')
         cursor = conn.cursor()
         
-        # Capital por cada cripto
+        cursor.execute("""
+            SELECT fecha_inicio, dias_planificados, inversion_inicial, estado, cripto
+            FROM ciclos WHERE id = ?
+        """, (ciclo_id,))
+        info = cursor.fetchone()
+        
+        # Contar dias transcurridos
+        cursor.execute("""
+            SELECT COUNT(*) FROM dias_operacion WHERE ciclo_id = ?
+        """, (ciclo_id,))
+        dias_transcurridos = cursor.fetchone()[0] or 0
+        
+        # Contar transacciones
+        cursor.execute("""
+            SELECT COUNT(*) FROM transacciones WHERE ciclo_id = ?
+        """, (ciclo_id,))
+        num_trans = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        if info:
+            return {
+                'fecha_inicio': info[0],
+                'dias_planificados': info[1],
+                'inversion_inicial': info[2],
+                'estado': info[3],
+                'cripto': info[4],
+                'dias_transcurridos': dias_transcurridos,
+                'num_transacciones': num_trans
+            }
+        return None
+    except sqlite3.Error as e:
+        print(f"Error al obtener info del ciclo: {e}")
+        return None
+
+def consultar_capital_ciclo(ciclo_id):
+    """Calcula el capital actual del ciclo por cripto."""
+    try:
+        conn = sqlite3.connect('arbitraje.db')
+        cursor = conn.cursor()
+        
         cursor.execute("""
             SELECT cripto,
                    SUM(CASE WHEN tipo = 'compra' THEN cantidad_cripto ELSE -cantidad_cripto END) as cantidad,
@@ -38,7 +86,6 @@ def consultar_capital_actual(ciclo_id):
         criptos = cursor.fetchall()
         conn.close()
         
-        # Retornar diccionario con info por cripto
         capital_info = {}
         total_fiat = 0
         
@@ -66,10 +113,10 @@ def mostrar_capital_detallado(capital_info):
     import criptomonedas
     
     if not capital_info or capital_info.get('total_fiat', 0) == 0:
-        print("Capital inicial del dia: Sin capital")
+        print("Capital actual: $0.00 USD")
         return
     
-    print("Capital inicial del dia:")
+    print("Capital actual:")
     
     for cripto, info in capital_info.items():
         if cripto == 'total_fiat':
@@ -83,75 +130,10 @@ def mostrar_capital_detallado(capital_info):
     
     print(f"  Total: ${capital_info['total_fiat']:.2f} USD")
 
-def consultar_capital_otros_ciclos():
-    """Verifica si hay capital en ciclos anteriores."""
-    try:
-        conn = sqlite3.connect('arbitraje.db')
-        cursor = conn.cursor()
-        
-        # Obtener ciclo activo
-        cursor.execute("SELECT id FROM ciclos WHERE estado = 'activo'")
-        ciclo_activo = cursor.fetchone()
-        ciclo_activo_id = ciclo_activo[0] if ciclo_activo else None
-        
-        if not ciclo_activo_id:
-            conn.close()
-            return 0.0, 0.0
-        
-        # Capital en otros ciclos
-        cursor.execute("""
-            SELECT SUM(CASE WHEN tipo = 'compra' THEN cantidad_cripto ELSE -cantidad_cripto END) 
-            FROM transacciones WHERE ciclo_id != ?
-        """, (ciclo_activo_id,))
-        cripto_otros = cursor.fetchone()[0] or 0.0
-        
-        cursor.execute("""
-            SELECT SUM(CASE WHEN tipo = 'compra' THEN cantidad_cripto * precio_unitario 
-                           ELSE -(cantidad_cripto * precio_unitario) END) 
-            FROM transacciones WHERE ciclo_id != ?
-        """, (ciclo_activo_id,))
-        valor_otros = cursor.fetchone()[0] or 0.0
-        
-        conn.close()
-        return cripto_otros, valor_otros
-    except sqlite3.Error as e:
-        print(f"Error al consultar otros ciclos: {e}")
-        return 0.0, 0.0
-
-def obtener_info_ciclo(ciclo_id):
-    """Obtiene información completa de un ciclo."""
-    try:
-        conn = sqlite3.connect('arbitraje.db')
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT fecha_inicio, estado 
-            FROM ciclos WHERE id = ?
-        """, (ciclo_id,))
-        info = cursor.fetchone()
-        
-        cursor.execute("""
-            SELECT COUNT(*) FROM transacciones WHERE ciclo_id = ?
-        """, (ciclo_id,))
-        num_trans = cursor.fetchone()[0]
-        
-        conn.close()
-        
-        if info:
-            return {
-                'fecha_inicio': info[0],
-                'estado': info[1],
-                'num_transacciones': num_trans
-            }
-        return None
-    except sqlite3.Error as e:
-        print(f"Error al obtener info del ciclo: {e}")
-        return None
-
 def analizar_mercado(costo_promedio):
     """Analiza el mercado, define el precio y aplica validaciones avanzadas."""
     print("-" * 60)
-    print("ANÁLISIS DE MERCADO Y DEFINICIÓN DE PRECIO")
+    print("ANALISIS DE MERCADO Y DEFINICION DE PRECIO")
     print("-" * 60)
     
     porcentaje_comision = obtener_config_db('comision_defecto')
@@ -162,365 +144,324 @@ def analizar_mercado(costo_promedio):
     
     precio_sugerido = (costo_promedio * factor_ganancia) / factor_comision
     
-    print(f"\nUsando {porcentaje_comision}% de comisión y un objetivo de {porcentaje_ganancia_objetivo}% de ganancia...")
+    print(f"\nUsando {porcentaje_comision}% de comision y un objetivo de {porcentaje_ganancia_objetivo}% de ganancia...")
     print(f"Costo promedio actual: ${costo_promedio:.4f}")
     print(f"Precio sugerido: ${precio_sugerido:.4f}")
     
     while True:
         try:
-            precio_elegido = float(input("\n¿Qué precio vas a publicar en tu anuncio?: "))
+            precio_elegido = float(input("\nQue precio vas a publicar en tu anuncio?: "))
             if precio_elegido <= 0:
-                print("❌ Error: El precio debe ser un número positivo.")
+                print("Error: El precio debe ser un numero positivo.")
                 continue
 
             ganancia_neta_real_pct = (((precio_elegido * factor_comision) / costo_promedio) - 1) * 100
 
             if ganancia_neta_real_pct < 0:
-                print(f"\n⚠️  ¡ADVERTENCIA GRAVE! Con el precio ${precio_elegido:.4f} tu ganancia neta será NEGATIVA: {ganancia_neta_real_pct:.2f}%.")
-                confirmacion = input("¿Estás seguro de que quieres operar con pérdidas? (s/n): ")
-                if confirmacion.lower() in ['s', 'si', 'sí']:
-                    print("⚠️  Operación con pérdidas confirmada.")
+                print(f"\nADVERTENCIA GRAVE! Con el precio ${precio_elegido:.4f} tu ganancia neta sera NEGATIVA: {ganancia_neta_real_pct:.2f}%.")
+                confirmacion = input("Estas seguro de que quieres operar con perdidas? (s/n): ")
+                if confirmacion.lower() in ['s', 'si']:
+                    print("Operacion con perdidas confirmada.")
                     break
             elif ganancia_neta_real_pct < porcentaje_ganancia_objetivo:
-                print(f"\n⚠️  ¡ADVERTENCIA! Con el precio ${precio_elegido:.4f} tu ganancia neta será de solo un {ganancia_neta_real_pct:.2f}%.")
-                print(f"   No alcanzarás tu meta del {porcentaje_ganancia_objetivo}%.")
+                print(f"\nADVERTENCIA! Con el precio ${precio_elegido:.4f} tu ganancia neta sera de solo un {ganancia_neta_real_pct:.2f}%.")
+                print(f"   No alcanzaras tu meta del {porcentaje_ganancia_objetivo}%.")
                 
                 if 0 < ganancia_neta_real_pct < 0.5:
-                    print("   Este margen es muy bajo y podría resultar en pérdidas por comisiones en transacciones pequeñas.")
+                    print("   Este margen es muy bajo y podria resultar en perdidas por comisiones en transacciones pequenas.")
                 
-                confirmacion = input("¿Aún así deseas usar este precio? (s/n): ")
-                if confirmacion.lower() in ['s', 'si', 'sí']:
+                confirmacion = input("Aun asi deseas usar este precio? (s/n): ")
+                if confirmacion.lower() in ['s', 'si']:
                     break
             else:
-                print(f"✅ Buen precio. Tu ganancia neta estimada será de un {ganancia_neta_real_pct:.2f}%.")
+                print(f"Buen precio. Tu ganancia neta estimada sera de un {ganancia_neta_real_pct:.2f}%.")
                 break
 
         except ValueError:
-            print("❌ Error: Ingrese un valor numérico válido.")
+            print("Error: Ingrese un valor numerico valido.")
             
     return precio_elegido, porcentaje_comision
 
-def registrar_ventas_del_dia(ciclo_id, precio_venta, comision):
-    """Registra hasta 3 ventas en la BD, incluyendo todas las validaciones."""
+def registrar_ventas_del_dia(ciclo_id, dia_id, precio_venta, comision, cripto, cantidad_disponible, costo_promedio):
+    """Registra ventas del dia con limite configurable."""
     print("\n" + "-" * 60)
-    print("CONTABILIDAD DE CIERRE DEL DÍA")
+    print("CONTABILIDAD DE CIERRE DEL DIA")
     print("-" * 60)
-    ventas_realizadas = 0
     
-    while ventas_realizadas < 3:
-        cripto_disponible, costo_promedio_actual = consultar_capital_actual(ciclo_id)
-        
-        if cripto_disponible < 0.0001:
-            print("\n⚠️  No queda capital en la bóveda para vender.")
+    # Obtener limites
+    ventas_min = obtener_config_db('ventas_minimas_dia')
+    ventas_max = obtener_config_db('ventas_maximas_dia')
+    
+    print(f"\nLimite de ventas por dia: {ventas_min} minimo, {ventas_max} maximo")
+    print("IMPORTANTE: Para evitar bloqueos bancarios, respeta el limite de ventas.")
+    
+    # Obtener ventas actuales del dia
+    puede_vender, ventas_actuales, max_ventas = dias.validar_limite_ventas(dia_id)
+    
+    import criptomonedas
+    info_cripto = criptomonedas.obtener_info_cripto(cripto)
+    nombre_cripto = info_cripto['nombre'] if info_cripto else cripto
+    
+    cantidad_actual = cantidad_disponible
+    
+    while puede_vender:
+        if cantidad_actual < 0.0001:
+            print("\nNo queda capital de esta cripto para vender.")
             break
 
-        print(f"\n💰 Capital actual en bóveda: {cripto_disponible:.4f} cripto.")
-        respuesta = input(f"¿Deseas registrar la venta #{ventas_realizadas + 1}? (s/n): ")
+        cantidad_fmt = criptomonedas.formatear_cantidad_cripto(cantidad_actual, cripto)
+        print(f"\nCapital actual de {nombre_cripto}: {cantidad_fmt}")
+        print(f"Ventas realizadas hoy: {ventas_actuales}/{max_ventas}")
         
-        if respuesta.lower() in ['s', 'si', 'sí']:
+        if ventas_actuales >= ventas_min:
+            print(f"Ya alcanzaste el minimo de {ventas_min} ventas.")
+            continuar = input("Deseas registrar otra venta? (s/n): ")
+            if continuar.lower() not in ['s', 'si']:
+                break
+        
+        respuesta = input(f"\nDeseas registrar la venta #{ventas_actuales + 1}? (s/n): ")
+        
+        if respuesta.lower() in ['s', 'si']:
             while True:
-                respuesta_cantidad = input(f"  Ingresa la cantidad de cripto vendido (o 'todo'): ")
+                respuesta_cantidad = input(f"  Ingresa la cantidad de {cripto} vendido (o 'todo'): ")
                 if respuesta_cantidad.lower() == 'todo':
-                    cantidad_vendida = cripto_disponible
-                    print(f"  📤 Vendiendo todo el capital restante: {cantidad_vendida:.4f}")
+                    cantidad_vendida = cantidad_actual
+                    print(f"  Vendiendo todo el capital restante: {criptomonedas.formatear_cantidad_cripto(cantidad_vendida, cripto)}")
                     break
                 try:
                     cantidad_vendida = float(respuesta_cantidad)
                     if cantidad_vendida <= 0:
-                        print("  ❌ Error: La cantidad debe ser mayor a cero.")
-                    elif cantidad_vendida > cripto_disponible:
-                        print(f"  ❌ Error: No puedes vender más de {cripto_disponible:.4f} cripto.")
+                        print("  Error: La cantidad debe ser mayor a cero.")
+                    elif cantidad_vendida > cantidad_actual:
+                        print(f"  Error: No puedes vender mas de {cantidad_fmt}")
                     else:
                         break
                 except ValueError:
-                    print("  ❌ Error: Ingrese un número o la palabra 'todo'.")
+                    print("  Error: Ingrese un numero o la palabra 'todo'.")
             
             try:
                 conn = sqlite3.connect('arbitraje.db')
                 cursor = conn.cursor()
                 fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                monto_fiat_venta = cantidad_vendida * precio_venta
                 
                 cursor.execute("""
-                    INSERT INTO transacciones (ciclo_id, fecha, tipo, cantidad_cripto, precio_unitario, precio_venta_real, comision_pct)
-                    VALUES (?, ?, 'venta', ?, ?, ?, ?)
-                """, (ciclo_id, fecha_actual, cantidad_vendida, costo_promedio_actual, precio_venta, comision))
+                    INSERT INTO transacciones 
+                    (ciclo_id, dia_id, fecha, tipo, cripto, cantidad_cripto, precio_unitario, precio_venta_real, comision_pct, monto_fiat)
+                    VALUES (?, ?, ?, 'venta', ?, ?, ?, ?, ?, ?)
+                """, (ciclo_id, dia_id, fecha_actual, cripto, cantidad_vendida, costo_promedio, precio_venta, comision, monto_fiat_venta))
                 
                 conn.commit()
                 conn.close()
-                print("  ✅ ¡Venta registrada con éxito!")
-                ventas_realizadas += 1
+                
+                # Incrementar contador de ventas
+                dias.incrementar_ventas_dia(dia_id)
+                
+                print("  Venta registrada con exito!")
+                cantidad_actual -= cantidad_vendida
+                ventas_actuales += 1
+                
+                # Validar limite de nuevo
+                puede_vender, ventas_actuales, max_ventas = dias.validar_limite_ventas(dia_id)
+                
+                if not puede_vender:
+                    print(f"\nLIMITE ALCANZADO: Has realizado {max_ventas} ventas hoy.")
+                    print("Para evitar bloqueos bancarios, no puedes hacer mas ventas hoy.")
+                    break
+                    
             except sqlite3.Error as e:
-                print(f"  ❌ Error al registrar la venta: {e}")
+                print(f"  Error al registrar la venta: {e}")
                 
         elif respuesta.lower() in ['n', 'no']:
             break
         else:
-            print("  ❌ Error: Respuesta no válida. Inténtalo de nuevo.")
+            print("  Error: Respuesta no valida. Intentalo de nuevo.")
+    
+    # Validar minimo de ventas
+    if ventas_actuales < ventas_min:
+        print(f"\nADVERTENCIA: Solo realizaste {ventas_actuales} ventas.")
+        print(f"El minimo recomendado es {ventas_min} ventas por dia.")
             
-    print("\n✅ Fase de contabilidad del día finalizada.")
+    print("\nFase de contabilidad del dia finalizada.")
 
-def gestionar_cierre_ciclo(ciclo_id):
-    """Gestión INTELIGENTE del cierre de ciclo con validaciones según el estado."""
+def cerrar_dia_operacion(ciclo_id, dia_id):
+    """Cierra el dia de operacion y muestra resumen."""
     print("\n" + "=" * 60)
-    print("GESTIÓN DE CIERRE DE CICLO")
+    print("CIERRE DEL DIA DE OPERACION")
     print("=" * 60)
     
-    try:
-        # Calcular ganancia y capital actual
-        conn = sqlite3.connect('arbitraje.db')
-        cursor = conn.cursor()
+    resumen = dias.cerrar_dia_actual(ciclo_id, dia_id)
+    
+    if resumen:
+        print(f"\nCapital inicial del dia: ${resumen['capital_inicial']:.2f}")
+        print(f"Capital final del dia: ${resumen['capital_final']:.2f}")
+        print(f"Ganancia del dia: ${resumen['ganancia']:.2f}")
+        print(f"Ventas realizadas: {resumen['num_ventas']}")
+        print("\nDia cerrado exitosamente!")
+        return True
+    else:
+        print("\nError al cerrar el dia.")
+        return False
 
-        cursor.execute("""
-            SELECT SUM(
-                (cantidad_cripto * precio_venta_real * (1 - comision_pct / 100)) - 
-                (cantidad_cripto * precio_unitario)
-            )
-            FROM transacciones WHERE ciclo_id = ? AND tipo = 'venta'
-        """, (ciclo_id,))
-        ganancia_neta = cursor.fetchone()[0] or 0.0
+def mostrar_progreso_ciclo(ciclo_id):
+    """Muestra el progreso del ciclo global."""
+    info = obtener_info_ciclo_completa(ciclo_id)
+    
+    if not info:
+        return
+    
+    print("\n" + "=" * 60)
+    print("PROGRESO DEL CICLO GLOBAL")
+    print("=" * 60)
+    
+    dias_restantes = info['dias_planificados'] - info['dias_transcurridos']
+    porcentaje_avance = (info['dias_transcurridos'] / info['dias_planificados']) * 100
+    
+    print(f"Ciclo #{ciclo_id}")
+    print(f"Fecha inicio: {info['fecha_inicio']}")
+    print(f"Dias planificados: {info['dias_planificados']}")
+    print(f"Dias transcurridos: {info['dias_transcurridos']}")
+    print(f"Dias restantes: {dias_restantes}")
+    print(f"Avance: {porcentaje_avance:.1f}%")
+    print(f"Inversion inicial: ${info['inversion_inicial']:.2f}")
+    
+    # Mostrar resumen de dias
+    dias_resumen = dias.obtener_resumen_dias(ciclo_id)
+    
+    if dias_resumen:
+        print("\nResumen de dias:")
+        ganancia_acumulada = 0
+        for dia in dias_resumen:
+            ganancia_acumulada += dia[4]  # ganancia_dia
+            estado_emoji = "CERRADO" if dia[6] == 'cerrado' else "ABIERTO"
+            print(f"  Dia {dia[0]:2d} ({dia[1]}) - ${dia[4]:6.2f} [{estado_emoji}]")
+        
+        print(f"\nGanancia acumulada: ${ganancia_acumulada:.2f}")
+        
+        capital_actual = consultar_capital_ciclo(ciclo_id)
+        print(f"Capital actual total: ${capital_actual.get('total_fiat', 0):.2f}")
+    
+    print("=" * 60)
 
-        cursor.execute("""
-            SELECT SUM(CASE WHEN tipo = 'compra' THEN cantidad_cripto ELSE -cantidad_cripto END) 
-            FROM transacciones WHERE ciclo_id = ?
-        """, (ciclo_id,))
-        cripto_restante = cursor.fetchone()[0] or 0.0
-
-        cursor.execute("""
-            SELECT SUM(CASE WHEN tipo = 'compra' THEN cantidad_cripto * precio_unitario 
-                           ELSE -(cantidad_cripto * precio_unitario) END) 
-            FROM transacciones WHERE ciclo_id = ?
-        """, (ciclo_id,))
-        capital_restante_usd = cursor.fetchone()[0] or 0.0
-
-        # Contar transacciones
-        cursor.execute("SELECT COUNT(*) FROM transacciones WHERE ciclo_id = ?", (ciclo_id,))
-        num_transacciones = cursor.fetchone()[0]
-
-        conn.close()
-
-        # VALIDACIÓN: Ciclo vacío (sin transacciones)
-        if num_transacciones == 0:
-            print(f"\n⚠️  CICLO VACÍO DETECTADO")
-            print(f"   El ciclo #{ciclo_id} no tiene ninguna transacción registrada.")
-            print(f"   No hay ganancias ni capital para gestionar.")
-            
-            print("\n" + "-" * 60)
-            print("OPCIONES DISPONIBLES:")
-            print("-" * 60)
-            print("[1] CERRAR este ciclo vacío y crear uno nuevo")
-            print("[2] MANTENER este ciclo activo para fondear y operar")
-            print("[3] CANCELAR y volver al menú")
-            print("-" * 60)
-            
-            opcion = input("Selecciona una opción (1-3): ")
-            
-            if opcion == '1':
-                conn = sqlite3.connect('arbitraje.db')
-                cursor = conn.cursor()
-                fecha_fin = datetime.now().strftime("%Y-%m-%d")
-                cursor.execute("""
-                    UPDATE ciclos SET estado = 'completado', fecha_fin = ?, ganancia_neta_total = 0
-                    WHERE id = ?
-                """, (fecha_fin, ciclo_id))
-                conn.commit()
-                conn.close()
-                
-                print(f"\n✅ Ciclo vacío #{ciclo_id} cerrado.")
-                return True
-            elif opcion == '2':
-                print(f"\n🔄 Ciclo #{ciclo_id} permanece activo.")
-                print("💡 Usa 'Gestión de Bóveda' para fondear o transferir capital.")
-                return False
-            else:
-                print("\n❌ Operación cancelada.")
-                return False
-
-        # Mostrar resumen del ciclo
-        print(f"\n📊 RESUMEN DEL CICLO #{ciclo_id}:")
-        print(f"   📝 Transacciones: {num_transacciones}")
-        print(f"   💵 Ganancia Neta Generada: ${ganancia_neta:.2f}")
-        print(f"   💰 Capital Cripto Restante: {cripto_restante:.4f}")
-        print(f"   💵 Valor del Capital Restante: ${capital_restante_usd:.2f}")
-        
-        # DETERMINAR QUÉ OPCIONES MOSTRAR SEGÚN EL ESTADO
-        hay_ganancia = ganancia_neta > 0.01
-        hay_capital = capital_restante_usd > 0.01
-        
-        print("\n" + "-" * 60)
-        print("¿QUÉ DESEAS HACER CON ESTE CICLO?")
-        print("-" * 60)
-        
-        opciones_disponibles = []
-        
-        # ESCENARIO 1: Hay ganancia Y hay capital
-        if hay_ganancia and hay_capital:
-            print("[1] Cerrar y RETIRAR TODO (ganancia + capital)")
-            opciones_disponibles.append(('1', 'retirar_todo'))
-            print("[2] Cerrar y RETIRAR SOLO LA GANANCIA (dejar capital)")
-            opciones_disponibles.append(('2', 'retirar_ganancia'))
-            print("[3] Cerrar y DEJAR TODO para el próximo ciclo")
-            opciones_disponibles.append(('3', 'dejar_todo'))
-            print("[4] NO CERRAR - Continuar operando")
-            opciones_disponibles.append(('4', 'no_cerrar'))
-        
-        # ESCENARIO 2: Solo hay ganancia (capital vendido completamente)
-        elif hay_ganancia and not hay_capital:
-            print("[1] Cerrar y RETIRAR LA GANANCIA")
-            opciones_disponibles.append(('1', 'retirar_ganancia_solo'))
-            print("[2] Cerrar y DEJAR LA GANANCIA para el próximo ciclo")
-            opciones_disponibles.append(('2', 'dejar_ganancia'))
-            print("[3] NO CERRAR - Continuar operando")
-            opciones_disponibles.append(('3', 'no_cerrar'))
-        
-        # ESCENARIO 3: Solo hay capital (no hubo ganancias o pérdidas)
-        elif not hay_ganancia and hay_capital:
-            print("[1] Cerrar y RETIRAR EL CAPITAL")
-            opciones_disponibles.append(('1', 'retirar_capital_solo'))
-            print("[2] Cerrar y DEJAR EL CAPITAL para el próximo ciclo")
-            opciones_disponibles.append(('2', 'dejar_capital'))
-            print("[3] NO CERRAR - Continuar operando")
-            opciones_disponibles.append(('3', 'no_cerrar'))
-        
-        # ESCENARIO 4: No hay nada (todo vendido, sin ganancias significativas)
-        else:
-            print("[1] CERRAR este ciclo (no hay capital ni ganancias)")
-            opciones_disponibles.append(('1', 'cerrar_vacio'))
-            print("[2] NO CERRAR - Continuar operando")
-            opciones_disponibles.append(('2', 'no_cerrar'))
-        
-        print("-" * 60)
-        
-        opcion = input(f"Selecciona una opción (1-{len(opciones_disponibles)}): ")
-        
-        # Buscar la acción correspondiente
-        accion = None
-        for num, acc in opciones_disponibles:
-            if opcion == num:
-                accion = acc
-                break
-        
-        if accion is None:
-            print("\n❌ Opción no válida. El ciclo permanece activo.")
+def gestionar_cierre_ciclo_global(ciclo_id):
+    """Gestiona el cierre completo del ciclo global."""
+    print("\n" + "=" * 60)
+    print("CIERRE DEL CICLO GLOBAL")
+    print("=" * 60)
+    
+    # Mostrar progreso final
+    mostrar_progreso_ciclo(ciclo_id)
+    
+    info = obtener_info_ciclo_completa(ciclo_id)
+    
+    if info['dias_transcurridos'] < info['dias_planificados']:
+        print(f"\nADVERTENCIA: El ciclo esta planificado para {info['dias_planificados']} dias.")
+        print(f"Solo han transcurrido {info['dias_transcurridos']} dias.")
+        confirmacion = input("\nDeseas cerrar el ciclo antes de tiempo? (s/n): ")
+        if confirmacion.lower() not in ['s', 'si']:
+            print("Cierre cancelado.")
             return False
-        
-        # EJECUTAR LA ACCIÓN SELECCIONADA
-        return ejecutar_accion_cierre(ciclo_id, accion, ganancia_neta, capital_restante_usd, cripto_restante)
-            
-    except sqlite3.Error as e:
-        print(f"❌ Error al gestionar el cierre: {e}")
-        return False
-
-def ejecutar_accion_cierre(ciclo_id, accion, ganancia, capital_usd, cripto):
-    """Ejecuta la acción de cierre seleccionada."""
     
-    if accion == 'retirar_todo':
-        print(f"\n💸 Has decidido RETIRAR TODO del ciclo #{ciclo_id}")
-        print(f"   Ganancia: ${ganancia:.2f}")
-        print(f"   Capital: ${capital_usd:.2f}")
-        print(f"   Total a retirar: ${ganancia + capital_usd:.2f}")
-        
-        confirmacion = input("\n¿Confirmar cierre y retiro total? (s/n): ")
-        if confirmacion.lower() in ['s', 'si', 'sí']:
-            cerrar_ciclo_bd(ciclo_id, ganancia)
-            print(f"\n✅ ¡Ciclo #{ciclo_id} cerrado exitosamente!")
-            print(f"💸 Total retirado: ${ganancia + capital_usd:.2f}")
-            print("\n⚠️  IMPORTANTE: Deberás fondear nuevamente para el próximo ciclo.")
-            return True
-    
-    elif accion == 'retirar_ganancia':
-        print(f"\n💸 Has decidido RETIRAR SOLO LA GANANCIA")
-        print(f"   Ganancia a retirar: ${ganancia:.2f}")
-        print(f"   Capital que quedará: ${capital_usd:.2f} ({cripto:.4f} cripto)")
-        
-        confirmacion = input("\n¿Confirmar cierre y retiro de ganancia? (s/n): ")
-        if confirmacion.lower() in ['s', 'si', 'sí']:
-            cerrar_ciclo_bd(ciclo_id, ganancia)
-            print(f"\n✅ ¡Ciclo #{ciclo_id} cerrado exitosamente!")
-            print(f"💵 Ganancia retirada: ${ganancia:.2f}")
-            print(f"💰 Capital disponible para próximo ciclo: ${capital_usd:.2f}")
-            print("\n💡 TIP: Usa 'Transferir Capital' en Gestión de Bóveda.")
-            return True
-    
-    elif accion == 'dejar_todo':
-        total = ganancia + capital_usd
-        print(f"\n💰 Has decidido DEJAR TODO para el próximo ciclo")
-        print(f"   Total disponible: ${total:.2f}")
-        
-        confirmacion = input("\n¿Confirmar cierre? (s/n): ")
-        if confirmacion.lower() in ['s', 'si', 'sí']:
-            cerrar_ciclo_bd(ciclo_id, ganancia)
-            print(f"\n✅ ¡Ciclo #{ciclo_id} cerrado exitosamente!")
-            print(f"💰 Capital total para próximo ciclo: ${total:.2f}")
-            print("\n💡 TIP: Usa 'Transferir Capital' en Gestión de Bóveda.")
-            return True
-    
-    elif accion == 'retirar_ganancia_solo':
-        print(f"\n💸 Retirando ganancia de ${ganancia:.2f}")
-        confirmacion = input("¿Confirmar? (s/n): ")
-        if confirmacion.lower() in ['s', 'si', 'sí']:
-            cerrar_ciclo_bd(ciclo_id, ganancia)
-            print(f"\n✅ Ciclo cerrado. Ganancia retirada: ${ganancia:.2f}")
-            return True
-    
-    elif accion == 'dejar_ganancia':
-        print(f"\n💰 Dejando ganancia de ${ganancia:.2f} para el próximo ciclo")
-        confirmacion = input("¿Confirmar? (s/n): ")
-        if confirmacion.lower() in ['s', 'si', 'sí']:
-            cerrar_ciclo_bd(ciclo_id, ganancia)
-            print(f"\n✅ Ciclo cerrado. Ganancia disponible: ${ganancia:.2f}")
-            return True
-    
-    elif accion == 'retirar_capital_solo':
-        print(f"\n💸 Retirando capital de ${capital_usd:.2f}")
-        confirmacion = input("¿Confirmar? (s/n): ")
-        if confirmacion.lower() in ['s', 'si', 'sí']:
-            cerrar_ciclo_bd(ciclo_id, 0)
-            print(f"\n✅ Ciclo cerrado. Capital retirado: ${capital_usd:.2f}")
-            return True
-    
-    elif accion == 'dejar_capital':
-        print(f"\n💰 Dejando capital de ${capital_usd:.2f} para el próximo ciclo")
-        confirmacion = input("¿Confirmar? (s/n): ")
-        if confirmacion.lower() in ['s', 'si', 'sí']:
-            cerrar_ciclo_bd(ciclo_id, 0)
-            print(f"\n✅ Ciclo cerrado. Capital disponible: ${capital_usd:.2f}")
-            print("\n💡 TIP: Usa 'Transferir Capital' en Gestión de Bóveda.")
-            return True
-    
-    elif accion == 'cerrar_vacio':
-        confirmacion = input(f"\n¿Cerrar ciclo #{ciclo_id} vacío? (s/n): ")
-        if confirmacion.lower() in ['s', 'si', 'sí']:
-            cerrar_ciclo_bd(ciclo_id, 0)
-            print(f"\n✅ Ciclo #{ciclo_id} cerrado.")
-            return True
-    
-    elif accion == 'no_cerrar':
-        print(f"\n🔄 Ciclo #{ciclo_id} permanece activo.")
-        return False
-    
-    return False
-
-def cerrar_ciclo_bd(ciclo_id, ganancia):
-    """Cierra el ciclo en la base de datos."""
+    # Calcular ganancia total
     try:
         conn = sqlite3.connect('arbitraje.db')
         cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT SUM(ganancia_dia) FROM dias_operacion WHERE ciclo_id = ?
+        """, (ciclo_id,))
+        ganancia_total = cursor.fetchone()[0] or 0.0
+        
+        # Obtener capital final
+        capital_final = consultar_capital_ciclo(ciclo_id)
+        total_fiat_final = capital_final.get('total_fiat', 0)
+        
         fecha_fin = datetime.now().strftime("%Y-%m-%d")
         cursor.execute("""
-            UPDATE ciclos SET estado = 'completado', fecha_fin = ?, ganancia_neta_total = ?
+            UPDATE ciclos 
+            SET estado = 'completado', fecha_fin = ?, ganancia_neta_total = ?
             WHERE id = ?
-        """, (fecha_fin, ganancia, ciclo_id))
+        """, (fecha_fin, ganancia_total, ciclo_id))
+        
         conn.commit()
         conn.close()
+        
+        print("\n" + "=" * 60)
+        print("BALANCE FINAL DEL CICLO GLOBAL")
+        print("=" * 60)
+        print(f"Inversion inicial: ${info['inversion_inicial']:.2f}")
+        print(f"Ganancia neta total: ${ganancia_total:.2f}")
+        print(f"Capital final: ${total_fiat_final:.2f}")
+        print(f"Dias operados: {info['dias_transcurridos']}")
+        print(f"ROI: {(ganancia_total / info['inversion_inicial'] * 100):.2f}%")
+        print("=" * 60)
+        
+        return True
+        
     except sqlite3.Error as e:
-        print(f"❌ Error al cerrar ciclo: {e}")
+        print(f"Error al cerrar ciclo: {e}")
+        return False
 
-# =================================================
-# FUNCIÓN PRINCIPAL DEL MÓDULO
-# =================================================
+def crear_nuevo_ciclo_global():
+    """Crea un nuevo ciclo global con duracion planificada."""
+    print("\n" + "=" * 60)
+    print("CREAR NUEVO CICLO GLOBAL")
+    print("=" * 60)
+    
+    # Preguntar duracion
+    dias_defecto = obtener_config_db('dias_ciclo_defecto')
+    print(f"\nCuantos dias durara este ciclo?")
+    print(f"(Por defecto: {dias_defecto} dias)")
+    
+    try:
+        dias_input = input(f"Dias del ciclo (Enter para {dias_defecto}): ").strip()
+        dias_ciclo = int(dias_input) if dias_input else dias_defecto
+        
+        if dias_ciclo < 1:
+            print("Error: El ciclo debe durar al menos 1 dia.")
+            return None
+        
+        if dias_ciclo > 90:
+            print("Advertencia: Ciclos muy largos pueden ser dificiles de gestionar.")
+            confirmacion = input(f"Confirmar ciclo de {dias_ciclo} dias? (s/n): ")
+            if confirmacion.lower() not in ['s', 'si']:
+                return None
+        
+        fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+        fecha_fin_estimada = (datetime.now() + timedelta(days=dias_ciclo)).strftime("%Y-%m-%d")
+        
+        print(f"\nFecha inicio: {fecha_hoy}")
+        print(f"Fecha fin estimada: {fecha_fin_estimada}")
+        print(f"Duracion: {dias_ciclo} dias")
+        
+        confirmacion_final = input("\nConfirmar creacion del ciclo? (s/n): ")
+        if confirmacion_final.lower() not in ['s', 'si']:
+            print("Creacion cancelada.")
+            return None
+        
+        conn = sqlite3.connect('arbitraje.db')
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO ciclos (fecha_inicio, dias_planificados, estado)
+            VALUES (?, ?, 'activo')
+        """, (fecha_hoy, dias_ciclo))
+        nuevo_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        print(f"\nNuevo ciclo #{nuevo_id} creado exitosamente!")
+        print(f"Duracion: {dias_ciclo} dias")
+        return nuevo_id
+        
+    except ValueError:
+        print("Error: Ingresa un numero valido.")
+        return None
+    except sqlite3.Error as e:
+        print(f"Error al crear ciclo: {e}")
+        return None
 
 def verificar_o_crear_ciclo():
-    """Verifica si hay un ciclo activo y gestiona la decisión del usuario."""
+    """Verifica si hay un ciclo activo y gestiona la decision del usuario."""
     try:
         conn = sqlite3.connect('arbitraje.db')
         cursor = conn.cursor()
@@ -530,111 +471,164 @@ def verificar_o_crear_ciclo():
         
         if ciclo_activo:
             ciclo_id = ciclo_activo[0]
-            info = obtener_info_ciclo(ciclo_id)
-            cripto_actual, costo_promedio = consultar_capital_actual(ciclo_id)
-            cripto_otros, valor_otros = consultar_capital_otros_ciclos()
+            info = obtener_info_ciclo_completa(ciclo_id)
+            capital_info = consultar_capital_ciclo(ciclo_id)
             
-            print(f"\n🔄 CICLO ACTIVO DETECTADO: #{ciclo_id}")
-            print(f"   📅 Fecha de inicio: {info['fecha_inicio']}")
-            print(f"   📊 Transacciones: {info['num_transacciones']}")
-            print(f"   💰 Capital actual: {cripto_actual:.4f} cripto", end="")
-            if costo_promedio > 0:
-                print(f" (${costo_promedio:.4f} promedio)")
+            print(f"\nCICLO GLOBAL ACTIVO DETECTADO: #{ciclo_id}")
+            print(f"   Fecha inicio: {info['fecha_inicio']}")
+            print(f"   Dias planificados: {info['dias_planificados']}")
+            print(f"   Dias transcurridos: {info['dias_transcurridos']}")
+            print(f"   Dias restantes: {info['dias_planificados'] - info['dias_transcurridos']}")
+            print(f"   Inversion inicial: ${info['inversion_inicial']:.2f}")
+            
+            # Mostrar capital
+            if capital_info.get('total_fiat', 0) > 0:
+                print(f"   Capital actual:")
+                import criptomonedas
+                for cripto, info_cripto in capital_info.items():
+                    if cripto == 'total_fiat':
+                        continue
+                    info_c = criptomonedas.obtener_info_cripto(cripto)
+                    nombre = info_c['nombre'] if info_c else cripto
+                    cantidad_fmt = criptomonedas.formatear_cantidad_cripto(info_cripto['cantidad'], cripto)
+                    print(f"      {cantidad_fmt} {nombre} = ${info_cripto['valor']:.2f}")
+                print(f"   Total: ${capital_info['total_fiat']:.2f} USD")
             else:
-                print()
-            
-            # Alertar si hay capital en otros ciclos
-            if cripto_otros > 0.01:
-                print(f"\n💡 AVISO: Tienes ${valor_otros:.2f} en ciclos anteriores.")
-                print(f"   Puedes transferirlo usando 'Gestión de Bóveda → Transferir Capital'")
+                print(f"   Capital actual: $0.00 USD")
             
             print("\n" + "-" * 60)
-            print("¿QUÉ DESEAS HACER?")
+            print("QUE DESEAS HACER?")
             print("-" * 60)
             print(f"[1] CONTINUAR operando en el ciclo #{ciclo_id}")
-            print(f"[2] CERRAR el ciclo #{ciclo_id} e iniciar uno nuevo")
-            print("[3] CANCELAR y volver al menú")
+            print(f"[2] VER PROGRESO del ciclo #{ciclo_id}")
+            print(f"[3] CERRAR el ciclo #{ciclo_id} e iniciar uno nuevo")
+            print("[4] CANCELAR y volver al menu")
             print("-" * 60)
             
-            opcion = input("Selecciona una opción (1-3): ")
+            opcion = input("Selecciona una opcion (1-4): ")
             
             if opcion == '1':
                 return ciclo_id
             elif opcion == '2':
-                if gestionar_cierre_ciclo(ciclo_id):
-                    print("\n🆕 Creando nuevo ciclo...")
-                    return crear_nuevo_ciclo()
+                mostrar_progreso_ciclo(ciclo_id)
+                input("\nPresiona Enter para continuar...")
+                return verificar_o_crear_ciclo()
+            elif opcion == '3':
+                if gestionar_cierre_ciclo_global(ciclo_id):
+                    print("\nCreando nuevo ciclo...")
+                    return crear_nuevo_ciclo_global()
                 else:
                     return ciclo_id
             else:
-                print("\n❌ Operación cancelada.")
+                print("\nOperacion cancelada.")
                 return None
         else:
-            print("\n⚠️  No se encontró ningún ciclo de trabajo activo.")
-            
-            # Verificar si hay capital en ciclos anteriores
-            cripto_otros, valor_otros = consultar_capital_otros_ciclos()
-            if cripto_otros > 0.01:
-                print(f"\n💡 AVISO: Tienes ${valor_otros:.2f} ({cripto_otros:.4f} cripto) en ciclos anteriores.")
-                print(f"   Podrás transferirlo al nuevo ciclo desde 'Gestión de Bóveda'.")
-            
-            respuesta = input("\n¿Deseas iniciar un nuevo ciclo? (s/n): ")
-            if respuesta.lower() in ['s', 'si', 'sí']:
-                return crear_nuevo_ciclo()
+            print("\nNo se encontro ningun ciclo global activo.")
+            respuesta = input("\nDeseas iniciar un nuevo ciclo global? (s/n): ")
+            if respuesta.lower() in ['s', 'si']:
+                return crear_nuevo_ciclo_global()
             else:
                 return None
                 
     except sqlite3.Error as e:
-        print(f"❌ Error al verificar ciclo: {e}")
-        return None
-
-def crear_nuevo_ciclo():
-    """Crea un nuevo ciclo de trabajo."""
-    try:
-        fecha_hoy = datetime.now().strftime("%Y-%m-%d")
-        conn = sqlite3.connect('arbitraje.db')
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO ciclos (fecha_inicio, estado) VALUES (?, ?)", (fecha_hoy, 'activo'))
-        nuevo_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        print(f"✅ Nuevo ciclo #{nuevo_id} iniciado con fecha {fecha_hoy}.")
-        return nuevo_id
-    except sqlite3.Error as e:
-        print(f"❌ Error al crear ciclo: {e}")
+        print(f"Error al verificar ciclo: {e}")
         return None
 
 def ejecutar_dia_de_trabajo():
-    """Orquesta todo el flujo de trabajo de un día de operaciones."""
+    """Orquesta todo el flujo de trabajo de un dia de operaciones."""
     print("\n" + "=" * 60)
-    print("MÓDULO OPERADOR: INICIANDO CICLO DIARIO")
+    print("MODULO OPERADOR: INICIANDO DIA DE OPERACION")
     print("=" * 60)
     
     ciclo_id = verificar_o_crear_ciclo()
     
-    if ciclo_id:
-        print(f"\n🔄 Trabajando en el ciclo activo #{ciclo_id}.")
+    if not ciclo_id:
+        print("\nNo hay un ciclo activo para trabajar. Volviendo al menu principal.")
+        return
+    
+    print(f"\nTrabajando en el ciclo global #{ciclo_id}.")
+    
+    # Verificar si hay un dia abierto
+    dia_actual = dias.obtener_dia_actual(ciclo_id)
+    
+    if not dia_actual:
+        # Crear nuevo dia
+        print("\nIniciando nuevo dia de operacion...")
+        capital_info = consultar_capital_ciclo(ciclo_id)
+        capital_inicial = capital_info.get('total_fiat', 0)
         
-        cripto_actual, costo_promedio = consultar_capital_actual(ciclo_id)
-        print(f"💰 Capital inicial del día: {cripto_actual:.4f} cripto")
-        print(f"📊 Costo promedio: ${costo_promedio:.4f}")
-
-        if cripto_actual > 0.0001:
-            precio_venta_hoy, comision_hoy = analizar_mercado(costo_promedio)
-            print("\n" + "-" * 60)
-            print("RESUMEN DEL DÍA")
-            print("-" * 60)
-            print(f"💲 Precio de venta publicado para hoy: ${precio_venta_hoy:.4f}")
-            registrar_ventas_del_dia(ciclo_id, precio_venta_hoy, comision_hoy)
-        else:
-            print("\n⚠️  No hay capital en la bóveda para operar hoy.")
-            print("   Usa el Módulo de Bóveda para fondear o transferir capital.")
-
-        print("\n" + "-" * 60)
-        print("GESTIÓN DEL CICLO")
-        print("-" * 60)
-        cierre = input("¿Deseas gestionar el cierre de este ciclo? (s/n): ")
-        if cierre.lower() in ['s', 'si', 'sí']:
-            gestionar_cierre_ciclo(ciclo_id)
+        if capital_inicial == 0:
+            print("\nNo hay capital para operar.")
+            print("Usa el Modulo de Boveda para fondear.")
+            return
+        
+        dia_id = dias.crear_nuevo_dia(ciclo_id, capital_inicial)
+        if not dia_id:
+            print("Error al crear dia de operacion.")
+            return
+        
+        dia_actual = dias.obtener_dia_actual(ciclo_id)
+    
+    print(f"\nDia de operacion #{dia_actual['numero_dia']}")
+    print(f"Capital inicial del dia: ${dia_actual['capital_inicial']:.2f}")
+    
+    # Obtener capital actual
+    capital_info = consultar_capital_ciclo(ciclo_id)
+    mostrar_capital_detallado(capital_info)
+    
+    if capital_info.get('total_fiat', 0) > 0.0001:
+        # Elegir cripto para operar
+        print("\nCon cual cripto deseas operar hoy?")
+        criptos_disponibles = [c for c in capital_info.keys() if c != 'total_fiat']
+        
+        for i, cripto in enumerate(criptos_disponibles, 1):
+            info = capital_info[cripto]
+            import criptomonedas
+            info_c = criptomonedas.obtener_info_cripto(cripto)
+            nombre = info_c['nombre'] if info_c else cripto
+            cantidad_fmt = criptomonedas.formatear_cantidad_cripto(info['cantidad'], cripto)
+            print(f"[{i}] {nombre} ({cripto}) - {cantidad_fmt} disponibles")
+        
+        try:
+            seleccion = int(input("\nSelecciona (numero): "))
+            if 1 <= seleccion <= len(criptos_disponibles):
+                cripto_elegida = criptos_disponibles[seleccion - 1]
+                info_cripto = capital_info[cripto_elegida]
+                
+                # Analizar mercado
+                precio_venta_hoy, comision_hoy = analizar_mercado(info_cripto['costo_promedio'])
+                print("\n" + "-" * 60)
+                print("RESUMEN DEL DIA")
+                print("-" * 60)
+                print(f"Cripto seleccionada: {cripto_elegida}")
+                print(f"Precio de venta publicado para hoy: ${precio_venta_hoy:.4f}")
+                
+                # Registrar ventas
+                registrar_ventas_del_dia(
+                    ciclo_id, 
+                    dia_actual['id'], 
+                    precio_venta_hoy, 
+                    comision_hoy, 
+                    cripto_elegida, 
+                    info_cripto['cantidad'],
+                    info_cripto['costo_promedio']
+                )
+                
+                # Cerrar dia
+                print("\n" + "-" * 60)
+                print("CIERRE DEL DIA")
+                print("-" * 60)
+                cierre = input("Deseas cerrar el dia de operacion? (s/n): ")
+                if cierre.lower() in ['s', 'si']:
+                    if cerrar_dia_operacion(ciclo_id, dia_actual['id']):
+                        # Preguntar si quiere ver progreso
+                        ver_progreso = input("\nDeseas ver el progreso del ciclo global? (s/n): ")
+                        if ver_progreso.lower() in ['s', 'si']:
+                            mostrar_progreso_ciclo(ciclo_id)
+            else:
+                print("\nOpcion invalida.")
+        except ValueError:
+            print("\nError: Ingresa un numero valido.")
     else:
-        print("\n⚠️  No hay un ciclo activo para trabajar. Volviendo al menú principal.")
+        print("\nNo hay capital en la boveda para operar hoy.")
+        print("   Usa el Modulo de Boveda para fondear o transferir capital.")
