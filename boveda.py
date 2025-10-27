@@ -1,425 +1,574 @@
-# -*- coding: utf-8 -*-
-import os
+def transferir_capital():
+    """Transfiere capital entre ciclos"""
+    
+    print("\n" + "="*60)
+    print("TRANSFERIR CAPITAL AL CICLO ACTIVO")
+    print("="*60)
+    
+    # Verificar ciclo activo
+    from ciclos import obtener_ciclo_activo
+    ciclo = obtener_ciclo_activo()
+    
+    if not ciclo:
+        print("\n❌ No hay ciclo activo")
+        print("   Crea un ciclo antes de transferir capital")
+        return
+    
+    print(f"\nCiclo activo: #{ciclo['id']}")
+    
+    # Mostrar capital disponible en otros ciclos
+    cursor.execute("""
+        SELECT 
+            bc.ciclo_id,
+            c.nombre,
+            c.simbolo,
+            c.id as cripto_id,
+            bc.cantidad,
+            bc.precio_promedio
+        FROM boveda_ciclo bc
+        JOIN criptomonedas c ON bc.cripto_id = c.id
+        WHERE bc.ciclo_id != ? AND bc.cantidad > 0
+        ORDER BY bc.ciclo_id, c.nombre
+    """, (ciclo['id'],))
+    
+    capital_otros = cursor.fetchall()
+    
+    if not capital_otros:
+        print("\n⚠️  No hay capital en otros ciclos para transferir")
+        return
+    
+    print("\nCapital disponible en otros ciclos:")
+    
+    for i, item in enumerate(capital_otros, 1):
+        valor = item['cantidad'] * item['precio_promedio']
+        print(f"\n[{i}] Ciclo #{item['ciclo_id']} - {item['nombre']} ({item['simbolo']})")
+        print(f"    Cantidad: {item['cantidad']:.8f}")
+        print(f"    Valor: ${valor:.2f}")
+    
+    # Seleccionar cripto a transferir
+    try:
+        seleccion = int(input("\n¿Qué cripto deseas transferir? (número): ")) - 1
+        
+        if seleccion < 0 or seleccion >= len(capital_otros):
+            print("❌ Selección inválida")
+            return
+        
+        cripto_seleccionada = capital_otros[seleccion]
+        
+        # Preguntar cantidad
+        print(f"\nTransfiriendo {cripto_seleccionada['nombre']} del Ciclo #{cripto_seleccionada['ciclo_id']} al Ciclo #{ciclo['id']}")
+        print(f"Disponible: {cripto_seleccionada['cantidad']:.8f}")
+        
+        cantidad_input = input("\n¿Cuánto deseas transferir? (o 'todo'): ").strip().lower()
+        
+        if cantidad_input == 'todo':
+            cantidad = cripto_seleccionada['cantidad']
+        else:
+            cantidad = float(cantidad_input)
+            
+            if cantidad <= 0 or cantidad > cripto_seleccionada['cantidad']:
+                print("❌ Cantidad inválida")
+                return
+        
+        # Confirmar
+        valor_transfer = cantidad * cripto_seleccionada['precio_promedio']
+        print(f"\n📋 RESUMEN DE TRANSFERENCIA:")
+        print(f"   Cripto: {cripto_seleccionada['nombre']}")
+        print(f"   Cantidad: {cantidad:.8f}")
+        print(f"   Valor: ${valor_transfer:.2f}")
+        print(f"   Desde: Ciclo #{cripto_seleccionada['ciclo_id']}")
+        print(f"   Hacia: Ciclo #{ciclo['id']}")
+        
+        confirmar = input("\n¿Confirmar transferencia? (s/n): ").lower()
+        
+        if confirmar != 's':
+            print("❌ Transferencia cancelada")
+            return
+        
+        # Realizar transferencia
+        # 1. Restar del ciclo origen
+        cursor.execute("""
+            UPDATE boveda_ciclo
+            SET cantidad = cantidad - ?
+            WHERE ciclo_id = ? AND cripto_id = ?
+        """, (cantidad, cripto_seleccionada['ciclo_id'], cripto_seleccionada['cripto_id']))
+        
+        # 2. Verificar si existe en ciclo destino
+        cursor.execute("""
+            SELECT cantidad, precio_promedio
+            FROM boveda_ciclo
+            WHERE ciclo_id = ? AND cripto_id = ?
+        """, (ciclo['id'], cripto_seleccionada['cripto_id']))
+        
+        destino_actual = cursor.fetchone()
+        
+        if destino_actual:
+            # Ya existe, calcular nuevo promedio
+            cant_anterior = destino_actual['cantidad']
+            precio_anterior = destino_actual['precio_promedio']
+            
+            costo_anterior = cant_anterior * precio_anterior
+            costo_nuevo = cantidad * cripto_seleccionada['precio_promedio']
+            
+            cantidad_total = cant_anterior + cantidad
+            precio_promedio_nuevo = (costo_anterior + costo_nuevo) / cantida"""
+=============================================================================
+MÓDULO DE BÓVEDA - Gestión de Capital y Compras
+=============================================================================
+Maneja el fondeo, transferencias y consultas de la bóveda
+"""
+
 import sqlite3
 from datetime import datetime
-import criptomonedas
+from logger import log
+from calculos import calc
 
-def obtener_ciclo_activo():
-    """Obtiene el ID del ciclo activo o None si no existe."""
-    try:
-        conn = sqlite3.connect('arbitraje.db')
-        cursor = conn.cursor()
-        cursor.execute("SELECT id FROM ciclos WHERE estado = 'activo'")
-        resultado = cursor.fetchone()
-        conn.close()
-        return resultado[0] if resultado else None
-    except sqlite3.Error as e:
-        print(f"Error al obtener ciclo activo: {e}")
-        return None
+# Conexión a la base de datos
+conn = sqlite3.connect('arbitraje.db')
+conn.row_factory = sqlite3.Row
+cursor = conn.cursor()
+
+
+# ===================================================================
+# FUNCIONES DE CONSULTA
+# ===================================================================
 
 def consultar_boveda():
-    """Calcula y muestra el estado actual de la boveda desde la BD."""
-    try:
-        conn = sqlite3.connect('arbitraje.db')
-        cursor = conn.cursor()
-
-        # Capital TOTAL por cripto
+    """Consulta el estado actual de la bóveda"""
+    
+    print("\n" + "="*60)
+    print("ESTADO ACTUAL DE LA BOVEDA")
+    print("="*60)
+    
+    # Obtener todas las criptos con saldo
+    cursor.execute("""
+        SELECT 
+            c.nombre,
+            c.simbolo,
+            bc.cantidad,
+            bc.precio_promedio,
+            (bc.cantidad * bc.precio_promedio) as valor_total
+        FROM boveda_ciclo bc
+        JOIN criptomonedas c ON bc.cripto_id = c.id
+        WHERE bc.cantidad > 0
+        ORDER BY valor_total DESC
+    """)
+    
+    criptos = cursor.fetchall()
+    
+    if not criptos:
+        print("\n⚠️  La bóveda está vacía")
+        print("   Fondea la bóveda antes de operar")
+        return
+    
+    print("\nCAPITAL TOTAL (Todas las criptos):")
+    
+    total_capital = 0
+    
+    for cripto in criptos:
+        print(f"\n   {cripto['nombre']} ({cripto['simbolo']}):")
+        print(f"   Cantidad: {cripto['cantidad']:.8f}")
+        print(f"   Valor: ${cripto['valor_total']:.2f}")
+        print(f"   Precio promedio: ${cripto['precio_promedio']:.4f}")
+        total_capital += cripto['valor_total']
+    
+    print(f"\n   TOTAL EN FIAT: ${total_capital:.2f}")
+    
+    # Si hay ciclo activo, mostrar capital en ese ciclo
+    from ciclos import obtener_ciclo_activo
+    ciclo = obtener_ciclo_activo()
+    
+    if ciclo:
+        print(f"\nCAPITAL EN CICLO ACTIVO (#{ciclo['id']}):")
+        
         cursor.execute("""
-            SELECT cripto, 
-                   SUM(CASE WHEN tipo = 'compra' THEN cantidad_cripto ELSE -cantidad_cripto END) as cantidad,
-                   SUM(CASE WHEN tipo = 'compra' THEN monto_fiat ELSE -monto_fiat END) as valor_fiat
-            FROM transacciones
-            GROUP BY cripto
-            HAVING cantidad > 0.0001
-        """)
-        criptos_totales = cursor.fetchall()
+            SELECT 
+                c.nombre,
+                c.simbolo,
+                bc.cantidad,
+                (bc.cantidad * bc.precio_promedio) as valor
+            FROM boveda_ciclo bc
+            JOIN criptomonedas c ON bc.cripto_id = c.id
+            WHERE bc.ciclo_id = ? AND bc.cantidad > 0
+        """, (ciclo['id'],))
+        
+        criptos_ciclo = cursor.fetchall()
+        total_ciclo = 0
+        
+        for cripto in criptos_ciclo:
+            print(f"\n   {cripto['nombre']} ({cripto['simbolo']}):")
+            print(f"   Disponible: {cripto['cantidad']:.8f}")
+            print(f"   Valor: ${cripto['valor']:.2f}")
+            total_ciclo += cripto['valor']
+        
+        print(f"\n   TOTAL EN CICLO: ${total_ciclo:.2f}")
+    
+    print("="*60)
 
-        # Capital en el ciclo ACTIVO
-        cursor.execute("SELECT id FROM ciclos WHERE estado = 'activo'")
-        ciclo_activo = cursor.fetchone()
-        
-        print("\n" + "=" * 60)
-        print("ESTADO ACTUAL DE LA BOVEDA")
-        print("=" * 60)
-        
-        if not criptos_totales:
-            print("\nLa boveda esta vacia.")
-            print("Usa la opcion [2] para fondear.")
-        else:
-            print("\nCAPITAL TOTAL (Todas las criptos):")
-            total_fiat = 0
-            for cripto_data in criptos_totales:
-                cripto = cripto_data[0]
-                cantidad = cripto_data[1]
-                valor = cripto_data[2]
-                total_fiat += valor
-                
-                info_cripto = criptomonedas.obtener_info_cripto(cripto)
-                nombre = info_cripto['nombre'] if info_cripto else cripto
-                cantidad_fmt = criptomonedas.formatear_cantidad_cripto(cantidad, cripto)
-                
-                print(f"\n   {nombre} ({cripto}):")
-                print(f"   Cantidad: {cantidad_fmt}")
-                print(f"   Valor: ${valor:.2f}")
-                print(f"   Precio promedio: ${(valor/cantidad):.4f}")
-            
-            print(f"\n   TOTAL EN FIAT: ${total_fiat:.2f}")
-        
-        if ciclo_activo:
-            ciclo_id = ciclo_activo[0]
-            
-            cursor.execute("""
-                SELECT cripto,
-                       SUM(CASE WHEN tipo = 'compra' THEN cantidad_cripto ELSE -cantidad_cripto END) as cantidad,
-                       SUM(CASE WHEN tipo = 'compra' THEN monto_fiat ELSE -monto_fiat END) as valor_fiat
-                FROM transacciones 
-                WHERE ciclo_id = ?
-                GROUP BY cripto
-                HAVING cantidad > 0.0001
-            """, (ciclo_id,))
-            criptos_activo = cursor.fetchall()
-            
-            print(f"\nCAPITAL EN CICLO ACTIVO (#{ciclo_id}):")
-            
-            if not criptos_activo:
-                print("   Sin capital en este ciclo.")
-                
-                if criptos_totales:
-                    print("\n   Tienes capital en ciclos anteriores.")
-                    print("   Usa la opcion [4] para transferirlo.")
-            else:
-                total_activo = 0
-                for cripto_data in criptos_activo:
-                    cripto = cripto_data[0]
-                    cantidad = cripto_data[1]
-                    valor = cripto_data[2]
-                    total_activo += valor
-                    
-                    info_cripto = criptomonedas.obtener_info_cripto(cripto)
-                    nombre = info_cripto['nombre'] if info_cripto else cripto
-                    cantidad_fmt = criptomonedas.formatear_cantidad_cripto(cantidad, cripto)
-                    
-                    print(f"\n   {nombre} ({cripto}):")
-                    print(f"   Disponible: {cantidad_fmt}")
-                    print(f"   Valor: ${valor:.2f}")
-                
-                print(f"\n   TOTAL EN CICLO: ${total_activo:.2f}")
-                
-                capital_otros = total_fiat - total_activo
-                if capital_otros > 0.01:
-                    print(f"\n   Capital en ciclos anteriores: ${capital_otros:.2f}")
-                    print("   Usa [4] para transferirlo al ciclo activo.")
-        else:
-            print("\nNo hay ciclo activo.")
-            if criptos_totales:
-                print("Crea un ciclo y transfiere el capital.")
-        
-        conn.close()
-        print("=" * 60)
-    except sqlite3.Error as e:
-        print(f"Error al consultar la boveda: {e}")
+
+def listar_criptomonedas():
+    """Lista todas las criptomonedas disponibles"""
+    
+    cursor.execute("""
+        SELECT id, nombre, simbolo, tipo, descripcion
+        FROM criptomonedas
+        ORDER BY tipo, nombre
+    """)
+    
+    return cursor.fetchall()
+
+
+# ===================================================================
+# FONDEAR BÓVEDA
+# ===================================================================
 
 def fondear_boveda():
-    """Registra una nueva compra con monto en FIAT y seleccion de cripto."""
-    print("\n" + "=" * 60)
+    """Registra una compra en la bóveda"""
+    
+    print("\n" + "="*60)
     print("FONDEAR BOVEDA (REGISTRAR COMPRA)")
-    print("=" * 60)
+    print("="*60)
     
-    ciclo_id = obtener_ciclo_activo()
+    # CORRECCIÓN: Obtener o FORZAR creación de ciclo activo
+    from ciclos import obtener_ciclo_activo, crear_ciclo
+    ciclo = obtener_ciclo_activo()
     
-    if ciclo_id is None:
-        print("\nError: No hay un ciclo activo.")
-        print("   Debes crear un ciclo desde el Modulo Operador primero.")
-        input("\nPresiona Enter para continuar...")
-        return
+    if not ciclo:
+        print("\n⚠️  No hay ciclo activo.")
+        print("Para fondear la bóveda, primero debes crear un ciclo.")
+        
+        crear = input("\n¿Deseas crear un ciclo ahora? (s/n): ").lower()
+        
+        if crear == 's':
+            try:
+                dias = int(input("¿Cuántos días durará el ciclo? (15): ") or "15")
+                ciclo_id = crear_ciclo(dias)
+                
+                if not ciclo_id:
+                    print("❌ No se pudo crear el ciclo")
+                    return
+            except ValueError:
+                print("❌ Valor inválido")
+                return
+        else:
+            print("\n❌ No puedes fondear sin un ciclo activo")
+            print("   Crea un ciclo primero desde [1] Operador")
+            return
+    else:
+        ciclo_id = ciclo['id']
+        print(f"\nRegistrando compra en el ciclo activo #{ciclo_id}")
     
-    print(f"\nRegistrando compra en el ciclo activo #{ciclo_id}")
+    # IMPORTANTE: Ahora ciclo_id NUNCA será 0 o None
+    # El resto del código sigue igual...
     
-    cripto = criptomonedas.seleccionar_cripto()
-    info_cripto = criptomonedas.obtener_info_cripto(cripto)
+    # Listar criptomonedas
+    print("\n" + "="*60)
+    print("CRIPTOMONEDAS DISPONIBLES")
+    print("="*60)
     
+    criptos = listar_criptomonedas()
+    
+    for i, cripto in enumerate(criptos, 1):
+        icono = "$" if cripto['tipo'] == 'stablecoin' else "฿"
+        print(f"\n{icono} [{i}] {cripto['nombre']} ({cripto['simbolo']})")
+        print(f"    Tipo: {cripto['tipo'].title()}")
+        print(f"    {cripto['descripcion']}")
+    
+    print("="*60)
+    
+    # Seleccionar criptomoneda
     try:
-        print(f"\nIngresa el monto que vas a invertir:")
-        monto_fiat = float(input("Monto en USD: $"))
+        print("\nSelecciona una opcion (numero): ", end='')
+        seleccion = int(input())
         
-        if monto_fiat <= 0:
-            print("Error: El monto debe ser positivo.")
-            input("\nPresiona Enter para continuar...")
+        if seleccion < 1 or seleccion > len(criptos):
+            print("❌ Selección inválida")
             return
         
-        print(f"\nIngresa la tasa de compra de {cripto}:")
-        print(f"   (Cuantos USD cuesta 1 {cripto}?)")
-        tasa_compra = float(input(f"1 {cripto} = $"))
+        cripto_seleccionada = criptos[seleccion - 1]
         
-        if tasa_compra <= 0:
-            print("Error: La tasa debe ser positiva.")
-            input("\nPresiona Enter para continuar...")
-            return
-        
-        cantidad_cripto = monto_fiat / tasa_compra
-        cantidad_fmt = criptomonedas.formatear_cantidad_cripto(cantidad_cripto, cripto)
-        
-        print(f"\n" + "=" * 60)
-        print("RESUMEN DE LA COMPRA")
-        print("=" * 60)
-        print(f"Criptomoneda: {info_cripto['nombre']} ({cripto})")
-        print(f"Monto invertido: ${monto_fiat:.2f} USD")
-        print(f"Tasa de compra: 1 {cripto} = ${tasa_compra:.4f}")
-        print(f"Cantidad comprada: {cantidad_fmt} {cripto}")
-        print(f"Precio unitario: ${tasa_compra:.4f}")
-        print("=" * 60)
-        
-        confirmacion = input("\nConfirmar esta compra? (s/n): ")
-        if confirmacion.lower() not in ['s', 'si']:
-            print("Compra cancelada.")
-            input("\nPresiona Enter para continuar...")
-            return
-
-        conn = sqlite3.connect('arbitraje.db')
-        cursor = conn.cursor()
-        
-        fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        cursor.execute("""
-            INSERT INTO transacciones 
-            (ciclo_id, fecha, tipo, cripto, cantidad_cripto, precio_unitario, comision_pct, monto_fiat)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (ciclo_id, fecha_actual, 'compra', cripto, cantidad_cripto, tasa_compra, 0, monto_fiat))
-        
-        conn.commit()
-        conn.close()
-        
-        print("\nCompra registrada con exito!")
-        print(f"Ahora tienes {cantidad_fmt} {cripto} en tu boveda.")
+        print(f"\nSeleccionaste: {cripto_seleccionada['nombre']} ({cripto_seleccionada['simbolo']})")
         
     except ValueError:
-        print("\nError: Entrada no valida. Por favor, ingrese solo numeros.")
-    except sqlite3.Error as e:
-        print(f"\nError al registrar la compra: {e}")
-    
-    input("\nPresiona Enter para continuar...")
-
-def ver_historial_transacciones():
-    """Muestra el historial de transacciones con filtros."""
-    print("\n" + "=" * 60)
-    print("HISTORIAL DE TRANSACCIONES")
-    print("=" * 60)
-    
-    print("\nFiltrar por:")
-    print("[1] Todas las transacciones")
-    print("[2] Solo del ciclo activo")
-    print("[3] Por tipo (compra/venta)")
-    print("[4] Por criptomoneda")
-    print("[5] Cancelar")
-    
-    opcion = input("\nSelecciona una opcion: ")
-    
-    try:
-        conn = sqlite3.connect('arbitraje.db')
-        cursor = conn.cursor()
-        
-        if opcion == '1':
-            cursor.execute("""
-                SELECT id, ciclo_id, fecha, tipo, cripto, cantidad_cripto, precio_unitario, monto_fiat
-                FROM transacciones 
-                ORDER BY fecha DESC
-                LIMIT 50
-            """)
-            titulo = "TODAS LAS TRANSACCIONES (Ultimas 50)"
-            
-        elif opcion == '2':
-            ciclo_id = obtener_ciclo_activo()
-            if not ciclo_id:
-                print("\nNo hay ciclo activo.")
-                conn.close()
-                input("\nPresiona Enter para continuar...")
-                return
-            
-            cursor.execute("""
-                SELECT id, ciclo_id, fecha, tipo, cripto, cantidad_cripto, precio_unitario, monto_fiat
-                FROM transacciones 
-                WHERE ciclo_id = ?
-                ORDER BY fecha DESC
-            """, (ciclo_id,))
-            titulo = f"TRANSACCIONES DEL CICLO ACTIVO #{ciclo_id}"
-            
-        elif opcion == '3':
-            print("\n[1] Compras")
-            print("[2] Ventas")
-            tipo_op = input("Selecciona: ")
-            tipo = 'compra' if tipo_op == '1' else 'venta'
-            
-            cursor.execute("""
-                SELECT id, ciclo_id, fecha, tipo, cripto, cantidad_cripto, precio_unitario, monto_fiat
-                FROM transacciones 
-                WHERE tipo = ?
-                ORDER BY fecha DESC
-                LIMIT 50
-            """, (tipo,))
-            titulo = f"TRANSACCIONES DE {tipo.upper()}"
-            
-        elif opcion == '4':
-            cripto = input("\nIngresa el simbolo de la cripto (ej: USDT): ").upper()
-            cursor.execute("""
-                SELECT id, ciclo_id, fecha, tipo, cripto, cantidad_cripto, precio_unitario, monto_fiat
-                FROM transacciones 
-                WHERE cripto = ?
-                ORDER BY fecha DESC
-                LIMIT 50
-            """, (cripto,))
-            titulo = f"TRANSACCIONES DE {cripto}"
-            
-        else:
-            conn.close()
-            return
-        
-        transacciones = cursor.fetchall()
-        conn.close()
-        
-        print("\n" + "=" * 60)
-        print(titulo)
-        print("=" * 60)
-        
-        if not transacciones:
-            print("\nNo hay transacciones con estos filtros.")
-        else:
-            for trans in transacciones:
-                tipo_emoji = ">>>" if trans[3] == 'compra' else "<<<"
-                info_cripto = criptomonedas.obtener_info_cripto(trans[4])
-                nombre_cripto = info_cripto['nombre'] if info_cripto else trans[4]
-                cantidad_fmt = criptomonedas.formatear_cantidad_cripto(trans[5], trans[4])
-                
-                print(f"\n{tipo_emoji} ID: {trans[0]} | Ciclo #{trans[1]} | {trans[2]}")
-                print(f"   {trans[3].upper()}: {cantidad_fmt} {nombre_cripto} ({trans[4]})")
-                print(f"   Precio: ${trans[6]:.4f} | Monto FIAT: ${trans[7]:.2f}")
-                print("-" * 60)
-        
-    except sqlite3.Error as e:
-        print(f"Error al consultar transacciones: {e}")
-    
-    input("\nPresiona Enter para continuar...")
-
-def transferir_capital_a_ciclo_activo():
-    """Transfiere todo el capital de ciclos anteriores al ciclo activo."""
-    print("\n" + "=" * 60)
-    print("TRANSFERIR CAPITAL AL CICLO ACTIVO")
-    print("=" * 60)
-    
-    ciclo_activo = obtener_ciclo_activo()
-    
-    if ciclo_activo is None:
-        print("\nError: No hay un ciclo activo.")
-        print("   Debes crear un ciclo desde el Modulo Operador primero.")
-        input("\nPresiona Enter para continuar...")
+        print("\nIngresa un numero valido.")
         return
     
+    # Ingresar monto
     try:
-        conn = sqlite3.connect('arbitraje.db')
-        cursor = conn.cursor()
+        monto_usd = float(input("\nIngresa el monto que vas a invertir:\nMonto en USD: $"))
         
+        if monto_usd <= 0:
+            print("❌ Monto inválido")
+            return
+        
+    except ValueError:
+        print("❌ Monto inválido")
+        return
+    
+    # Ingresar tasa de compra
+    try:
+        print(f"\nIngresa la tasa de compra de {cripto_seleccionada['simbolo']}:")
+        print(f"   (Cuantos USD cuesta 1 {cripto_seleccionada['simbolo']}?)")
+        tasa = float(input(f"1 {cripto_seleccionada['simbolo']} = $"))
+        
+        if tasa <= 0:
+            print("❌ Tasa inválida")
+            return
+        
+    except ValueError:
+        print("❌ Tasa inválida")
+        return
+    
+    # Calcular cantidad comprada
+    cantidad = monto_usd / tasa
+    
+    # Mostrar resumen
+    print("\n" + "="*60)
+    print("RESUMEN DE LA COMPRA")
+    print("="*60)
+    print(f"Criptomoneda: {cripto_seleccionada['nombre']} ({cripto_seleccionada['simbolo']})")
+    print(f"Monto invertido: ${monto_usd:.2f} USD")
+    print(f"Tasa de compra: 1 {cripto_seleccionada['simbolo']} = ${tasa:.4f}")
+    print(f"Cantidad comprada: {cantidad:.8f} {cripto_seleccionada['simbolo']}")
+    print(f"Precio unitario: ${tasa:.4f}")
+    print("="*60)
+    
+    # Confirmar
+    confirmar = input("\n¿Confirmar esta compra? (s/n): ").lower()
+    
+    if confirmar != 's':
+        print("\n❌ Compra cancelada")
+        return
+    
+    # Registrar compra
+    registrar_compra(
+        ciclo_id if ciclo_id else 0,
+        cripto_seleccionada['id'],
+        cantidad,
+        monto_usd,
+        tasa
+    )
+
+
+def registrar_compra(ciclo_id, cripto_id, cantidad, monto_usd, tasa):
+    """Registra una compra en la base de datos"""
+    
+    try:
+        # Obtener info de la cripto
+        cursor.execute("SELECT nombre, simbolo FROM criptomonedas WHERE id = ?", (cripto_id,))
+        cripto = cursor.fetchone()
+        
+        # Registrar en tabla de compras
         cursor.execute("""
-            SELECT cripto,
-                   SUM(CASE WHEN tipo = 'compra' THEN cantidad_cripto ELSE -cantidad_cripto END) as cantidad,
-                   SUM(CASE WHEN tipo = 'compra' THEN monto_fiat ELSE -monto_fiat END) as valor_fiat
-            FROM transacciones 
-            WHERE ciclo_id != ?
-            GROUP BY cripto
-            HAVING cantidad > 0.0001
-        """, (ciclo_activo,))
+            INSERT INTO compras (ciclo_id, cripto_id, cantidad, monto_usd, tasa, fecha)
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
+        """, (ciclo_id, cripto_id, cantidad, monto_usd, tasa))
         
-        criptos_otros = cursor.fetchall()
+        # Actualizar bóveda del ciclo
+        cursor.execute("""
+            SELECT cantidad, precio_promedio
+            FROM boveda_ciclo
+            WHERE ciclo_id = ? AND cripto_id = ?
+        """, (ciclo_id, cripto_id))
         
-        if not criptos_otros:
-            print("\nNo hay capital en ciclos anteriores para transferir.")
-            conn.close()
-            input("\nPresiona Enter para continuar...")
-            return
+        boveda_actual = cursor.fetchone()
         
-        print(f"\nCapital disponible en ciclos anteriores:")
-        total_transferir = 0
-        
-        for cripto_data in criptos_otros:
-            cripto = cripto_data[0]
-            cantidad = cripto_data[1]
-            valor = cripto_data[2]
-            total_transferir += valor
+        if boveda_actual:
+            # Ya existe, calcular nuevo promedio ponderado
+            cantidad_anterior = boveda_actual['cantidad']
+            precio_anterior = boveda_actual['precio_promedio']
             
-            info_cripto = criptomonedas.obtener_info_cripto(cripto)
-            nombre = info_cripto['nombre'] if info_cripto else cripto
-            cantidad_fmt = criptomonedas.formatear_cantidad_cripto(cantidad, cripto)
-            costo_promedio = valor / cantidad if cantidad > 0 else 0
+            # Costo total anterior
+            costo_anterior = cantidad_anterior * precio_anterior
             
-            print(f"\n   {nombre} ({cripto}):")
-            print(f"   Cantidad: {cantidad_fmt}")
-            print(f"   Valor: ${valor:.2f}")
-            print(f"   Costo promedio: ${costo_promedio:.4f}")
-        
-        print(f"\n   TOTAL A TRANSFERIR: ${total_transferir:.2f}")
-        print(f"\nDestino: Ciclo activo #{ciclo_activo}")
-        
-        confirmacion = input(f"\nTransferir TODO este capital al ciclo #{ciclo_activo}? (s/n): ")
-        
-        if confirmacion.lower() not in ['s', 'si']:
-            print("Transferencia cancelada.")
-            conn.close()
-            input("\nPresiona Enter para continuar...")
-            return
-        
-        fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        transferencias_exitosas = 0
-        
-        for cripto_data in criptos_otros:
-            cripto = cripto_data[0]
-            cantidad = cripto_data[1]
-            valor = cripto_data[2]
-            costo_promedio = valor / cantidad if cantidad > 0 else 0
+            # Costo de esta compra
+            costo_nueva = cantidad * tasa
+            
+            # Nueva cantidad y precio promedio
+            cantidad_nueva = cantidad_anterior + cantidad
+            precio_promedio_nuevo = (costo_anterior + costo_nueva) / cantidad_nueva
             
             cursor.execute("""
-                INSERT INTO transacciones 
-                (ciclo_id, fecha, tipo, cripto, cantidad_cripto, precio_unitario, comision_pct, monto_fiat)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (ciclo_activo, fecha_actual, 'compra', cripto, cantidad, costo_promedio, 0, valor))
+                UPDATE boveda_ciclo
+                SET cantidad = ?,
+                    precio_promedio = ?
+                WHERE ciclo_id = ? AND cripto_id = ?
+            """, (cantidad_nueva, precio_promedio_nuevo, ciclo_id, cripto_id))
             
-            transferencias_exitosas += 1
+        else:
+            # No existe, crear nuevo registro
+            cursor.execute("""
+                INSERT INTO boveda_ciclo (ciclo_id, cripto_id, cantidad, precio_promedio)
+                VALUES (?, ?, ?, ?)
+            """, (ciclo_id, cripto_id, cantidad, tasa))
         
         conn.commit()
-        conn.close()
         
-        print(f"\nTransferencia exitosa!")
-        print(f"{transferencias_exitosas} criptomoneda(s) transferida(s)")
-        print(f"Total: ${total_transferir:.2f}")
-        print(f"Ciclo destino: #{ciclo_activo}")
+        # Registrar en log
+        log.boveda_compra(
+            cripto=cripto['nombre'],
+            cantidad=cantidad,
+            monto_usd=monto_usd,
+            tasa=tasa,
+            ciclo_id=ciclo_id
+        )
         
-    except sqlite3.Error as e:
-        print(f"Error al transferir capital: {e}")
-    
-    input("\nPresiona Enter para continuar...")
+        print(f"\n✅ Compra registrada con exito!")
+        print(f"Ahora tienes {cantidad:.8f} {cripto['simbolo']} en tu boveda.")
+        
+        return True
+        
+    except Exception as e:
+        log.error("Error al registrar compra", str(e))
+        print(f"\n❌ Error al registrar compra: {e}")
+        conn.rollback()
+        return False
 
-def mostrar_menu_boveda():
-    """Muestra el sub-menu de gestion de boveda."""
+
+# ===================================================================
+# HISTORIAL DE TRANSACCIONES
+# ===================================================================
+
+def ver_historial():
+    """Muestra el historial de todas las compras"""
+    
+    print("\n" + "="*60)
+    print("HISTORIAL DE TRANSACCIONES")
+    print("="*60)
+    
+    cursor.execute("""
+        SELECT 
+            co.fecha,
+            co.ciclo_id,
+            cr.nombre,
+            cr.simbolo,
+            co.cantidad,
+            co.monto_usd,
+            co.tasa
+        FROM compras co
+        JOIN criptomonedas cr ON co.cripto_id = cr.id
+        ORDER BY co.fecha DESC
+        LIMIT 50
+    """)
+    
+    compras = cursor.fetchall()
+    
+    if not compras:
+        print("\n⚠️  No hay transacciones registradas")
+        return
+    
+    print(f"\nÚltimas {len(compras)} transacciones:")
+    
+    for compra in compras:
+        fecha = datetime.strptime(compra['fecha'], '%Y-%m-%d %H:%M:%S')
+        print(f"\n📅 {fecha.strftime('%Y-%m-%d %H:%M')}")
+        print(f"   Ciclo #{compra['ciclo_id']}")
+        print(f"   Compra: {compra['cantidad']:.8f} {compra['simbolo']}")
+        print(f"   Monto: ${compra['monto_usd']:.2f}")
+        print(f"   Tasa: 1 {compra['simbolo']} = ${compra['tasa']:.4f}")
+    
+    print("="*60)
+
+
+# ===================================================================
+# TRANSFERIR CAPITAL
+# ===================================================================
+
+def transferir_capital():
+    """Transfiere capital entre ciclos"""
+    
+    print("\n" + "="*60)
+    print("TRANSFERIR CAPITAL AL CICLO ACTIVO")
+    print("="*60)
+    
+    # Verificar ciclo activo
+    from ciclos import obtener_ciclo_activo
+    ciclo = obtener_ciclo_activo()
+    
+    if not ciclo:
+        print("\n❌ No hay ciclo activo")
+        print("   Crea un ciclo antes de transferir capital")
+        return
+    
+    print(f"\nCiclo activo: #{ciclo['id']}")
+    
+    # Mostrar capital disponible en otros ciclos
+    cursor.execute("""
+        SELECT 
+            bc.ciclo_id,
+            c.nombre,
+            c.simbolo,
+            bc.cantidad,
+            bc.precio_promedio
+        FROM boveda_ciclo bc
+        JOIN criptomonedas c ON bc.cripto_id = c.id
+        WHERE bc.ciclo_id != ? AND bc.cantidad > 0
+        ORDER BY bc.ciclo_id, c.nombre
+    """, (ciclo['id'],))
+    
+    capital_otros = cursor.fetchall()
+    
+    if not capital_otros:
+        print("\n⚠️  No hay capital en otros ciclos para transferir")
+        return
+    
+    print("\nCapital disponible en otros ciclos:")
+    
+    for item in capital_otros:
+        valor = item['cantidad'] * item['precio_promedio']
+        print(f"\nCiclo #{item['ciclo_id']}")
+        print(f"  {item['cantidad']:.8f} {item['simbolo']} (${valor:.2f})")
+    
+    # [Implementar lógica de transferencia]
+    print("\n⚠️  Función de transferencia en desarrollo")
+
+
+# ===================================================================
+# MENÚ DE BÓVEDA
+# ===================================================================
+
+def menu_boveda():
+    """Menú principal de gestión de bóveda"""
+    
     while True:
-        os.system('cls' if os.name == 'nt' else 'clear')
-        print("=" * 60)
+        print("\n" + "="*60)
         print("GESTION DE BOVEDA")
-        print("=" * 60)
+        print("="*60)
         print("[1] Consultar Estado de la Boveda")
         print("[2] Fondear Boveda (Registrar Compra)")
         print("[3] Ver Historial de Transacciones")
         print("[4] Transferir Capital al Ciclo Activo")
         print("[5] Volver al Menu Principal")
-        print("=" * 60)
-        opcion = input("Selecciona una opcion: ")
-
-        if opcion == '1':
+        print("="*60)
+        
+        opcion = input("Selecciona una opcion: ").strip()
+        
+        if opcion == "1":
             consultar_boveda()
             input("\nPresiona Enter para volver...")
-        elif opcion == '2':
+        
+        elif opcion == "2":
             fondear_boveda()
-        elif opcion == '3':
-            ver_historial_transacciones()
-        elif opcion == '4':
-            transferir_capital_a_ciclo_activo()
-        elif opcion == '5':
+            input("\nPresiona Enter para continuar...")
+        
+        elif opcion == "3":
+            ver_historial()
+            input("\nPresiona Enter para volver...")
+        
+        elif opcion == "4":
+            transferir_capital()
+            input("\nPresiona Enter para volver...")
+        
+        elif opcion == "5":
             break
+        
         else:
-            input("\nOpcion no valida. Presiona Enter...")
+            print("❌ Opción inválida")
+
+
+# ===================================================================
+# EJECUCIÓN DIRECTA
+# ===================================================================
+
+if __name__ == "__main__":
+    menu_boveda()

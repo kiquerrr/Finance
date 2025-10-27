@@ -375,4 +375,358 @@ def cerrar_dia(dia_id):
         log.advertencia("El día ya está cerrado", f"Día #{dia['numero_dia']}")
         return None
     
-    ciclo_id = dia['ciclo_
+    ciclo_id = dia['ciclo_id']
+    
+    # Obtener ventas del día
+    ventas = obtener_ventas_del_dia(dia_id)
+    
+    if not ventas:
+        log.advertencia("No hay ventas registradas para cerrar", f"Día #{dia['numero_dia']}")
+    
+    # Calcular capital final en criptos
+    capital_final_criptos = calcular_capital_actual_criptos(ciclo_id)
+    
+    # CALCULAR RESUMEN DEL DÍA
+    resumen = calc.calcular_resumen_dia(
+        capital_inicial=dia['capital_inicial'],
+        ventas=ventas,
+        capital_final_criptos=capital_final_criptos
+    )
+    
+    # Actualizar día en BD
+    cursor.execute("""
+        UPDATE dias SET
+            capital_final = ?,
+            efectivo_recibido = ?,
+            ganancia_bruta = ?,
+            ganancia_neta = ?,
+            comisiones_pagadas = ?,
+            estado = 'cerrado',
+            fecha_cierre = datetime('now')
+        WHERE id = ?
+    """, (
+        resumen['capital_final_total'],
+        resumen['efectivo_recibido'],
+        resumen['total_ganancia_bruta'],
+        resumen['total_ganancia_neta'],
+        resumen['total_comisiones'],
+        dia_id
+    ))
+    conn.commit()
+    
+    # REGISTRAR EN LOG
+    log.dia_cerrado(
+        ciclo_id=ciclo_id,
+        dia_num=dia['numero_dia'],
+        capital_inicial=dia['capital_inicial'],
+        capital_final=resumen['capital_final_total'],
+        ganancia_dia=resumen['total_ganancia_neta'],
+        ventas_realizadas=resumen['num_ventas']
+    )
+    
+    # Mostrar resumen detallado
+    print("\n" + "="*60)
+    print("CIERRE DEL DÍA DE OPERACIÓN")
+    print("="*60)
+    print(f"\n📊 DÍA #{dia['numero_dia']}")
+    print(f"Ventas realizadas: {resumen['num_ventas']}")
+    print(f"\n💰 CAPITAL:")
+    print(f"   Inicial: ${dia['capital_inicial']:.2f}")
+    print(f"   En criptos: ${resumen['capital_final_criptos']:.2f}")
+    print(f"   Efectivo recibido: ${resumen['efectivo_recibido']:.2f}")
+    print(f"   Final total: ${resumen['capital_final_total']:.2f}")
+    print(f"\n💸 COSTOS Y GANANCIAS:")
+    print(f"   Comisiones pagadas: ${resumen['total_comisiones']:.2f}")
+    print(f"   Ganancia bruta: ${resumen['total_ganancia_bruta']:.2f}")
+    print(f"   Ganancia neta: ${resumen['total_ganancia_neta']:.2f}")
+    print(f"\n📈 RENDIMIENTO:")
+    roi = (resumen['total_ganancia_neta'] / dia['capital_inicial'] * 100) if dia['capital_inicial'] > 0 else 0
+    print(f"   ROI del día: {roi:.2f}%")
+    print("="*60)
+    
+    return resumen
+
+
+# ===================================================================
+# POOL DE REINVERSIÓN (INTERÉS COMPUESTO)
+# ===================================================================
+
+def aplicar_interes_compuesto(ciclo_id):
+    """
+    Convierte el efectivo del pool en cripto para el siguiente día
+    Implementa interés compuesto automático
+    """
+    
+    # Obtener efectivo disponible en el pool
+    cursor.execute("""
+        SELECT COALESCE(SUM(monto), 0) as total_efectivo
+        FROM efectivo_banco
+        WHERE ciclo_id = ?
+    """, (ciclo_id,))
+    
+    efectivo_disponible = cursor.fetchone()['total_efectivo']
+    
+    if efectivo_disponible <= 0:
+        log.info("No hay efectivo en el pool de reinversión", categoria='operaciones')
+        return None
+    
+    print(f"\n💰 Pool de reinversión: ${efectivo_disponible:.2f} USD disponibles")
+    print("\n¿Deseas reinvertir este efectivo en cripto para el siguiente día?")
+    print("[1] Sí, reinvertir todo (Interés compuesto)")
+    print("[2] No, mantener como efectivo")
+    
+    opcion = input("\nSelecciona (1-2): ").strip()
+    
+    if opcion != "1":
+        log.info(f"Efectivo mantenido sin reinvertir: ${efectivo_disponible:.2f}", categoria='operaciones')
+        return None
+    
+    # Seleccionar cripto para reinvertir
+    print("\n¿En qué cripto deseas reinvertir?")
+    cursor.execute("SELECT id, nombre, simbolo FROM criptomonedas ORDER BY nombre")
+    criptos = cursor.fetchall()
+    
+    for i, c in enumerate(criptos, 1):
+        print(f"[{i}] {c['nombre']} ({c['simbolo']})")
+    
+    try:
+        seleccion = int(input("\nSelecciona: ")) - 1
+        cripto_seleccionada = criptos[seleccion]
+    except:
+        print("❌ Selección inválida")
+        return None
+    
+    # Pedir tasa de compra
+    print(f"\nIngresa la tasa de compra actual de {cripto_seleccionada['simbolo']}:")
+    try:
+        tasa = float(input(f"1 {cripto_seleccionada['simbolo']} = $"))
+    except:
+        print("❌ Tasa inválida")
+        return None
+    
+    # Calcular cantidad a comprar
+    cantidad_comprada = efectivo_disponible / tasa
+    
+    print(f"\n📋 RESUMEN DE REINVERSIÓN:")
+    print(f"   Efectivo a reinvertir: ${efectivo_disponible:.2f}")
+    print(f"   Cripto: {cripto_seleccionada['nombre']}")
+    print(f"   Tasa: 1 {cripto_seleccionada['simbolo']} = ${tasa:.4f}")
+    print(f"   Cantidad: {cantidad_comprada:.8f} {cripto_seleccionada['simbolo']}")
+    
+    confirmar = input("\n¿Confirmar reinversión? (s/n): ").lower()
+    if confirmar != 's':
+        log.info("Reinversión cancelada", categoria='operaciones')
+        return None
+    
+    # Agregar a la bóveda
+    cursor.execute("""
+        SELECT cantidad, precio_promedio 
+        FROM boveda_ciclo 
+        WHERE ciclo_id = ? AND cripto_id = ?
+    """, (ciclo_id, cripto_seleccionada['id']))
+    
+    boveda_actual = cursor.fetchone()
+    
+    if boveda_actual:
+        # Ya existe, calcular nuevo promedio ponderado
+        cantidad_anterior = boveda_actual['cantidad']
+        precio_anterior = boveda_actual['precio_promedio']
+        
+        costo_anterior = cantidad_anterior * precio_anterior
+        costo_nuevo = cantidad_comprada * tasa
+        costo_total = costo_anterior + costo_nuevo
+        cantidad_total = cantidad_anterior + cantidad_comprada
+        precio_promedio_nuevo = costo_total / cantidad_total
+        
+        cursor.execute("""
+            UPDATE boveda_ciclo
+            SET cantidad = ?,
+                precio_promedio = ?
+            WHERE ciclo_id = ? AND cripto_id = ?
+        """, (cantidad_total, precio_promedio_nuevo, ciclo_id, cripto_seleccionada['id']))
+    else:
+        # No existe, crear nuevo registro
+        cursor.execute("""
+            INSERT INTO boveda_ciclo (ciclo_id, cripto_id, cantidad, precio_promedio)
+            VALUES (?, ?, ?, ?)
+        """, (ciclo_id, cripto_seleccionada['id'], cantidad_comprada, tasa))
+    
+    # Limpiar el pool de efectivo (ya se reinvirtió)
+    cursor.execute("""
+        DELETE FROM efectivo_banco WHERE ciclo_id = ?
+    """, (ciclo_id,))
+    
+    conn.commit()
+    
+    # REGISTRAR EN LOG
+    log.boveda_compra(
+        cripto=cripto_seleccionada['nombre'],
+        cantidad=cantidad_comprada,
+        monto_usd=efectivo_disponible,
+        tasa=tasa,
+        ciclo_id=ciclo_id
+    )
+    
+    log.info(
+        f"INTERÉS COMPUESTO APLICADO: ${efectivo_disponible:.2f} reinvertidos en "
+        f"{cantidad_comprada:.8f} {cripto_seleccionada['simbolo']}",
+        categoria='operaciones'
+    )
+    
+    print(f"\n✅ ¡Reinversión completada!")
+    print(f"   Capital aumentado por interés compuesto")
+    print(f"   Nuevo saldo: {cantidad_comprada:.8f} {cripto_seleccionada['simbolo']}")
+    
+    return {
+        'monto_reinvertido': efectivo_disponible,
+        'cripto': cripto_seleccionada['nombre'],
+        'cantidad': cantidad_comprada,
+        'tasa': tasa
+    }
+
+
+# ===================================================================
+# RESUMEN Y PROGRESO
+# ===================================================================
+
+def obtener_progreso_ciclo(ciclo_id):
+    """Obtiene el progreso completo del ciclo"""
+    
+    # Info del ciclo
+    cursor.execute("""
+        SELECT * FROM ciclos WHERE id = ?
+    """, (ciclo_id,))
+    ciclo = cursor.fetchone()
+    
+    if not ciclo:
+        return None
+    
+    # Días del ciclo
+    dias = obtener_resumen_dias(ciclo_id)
+    
+    # Capital actual
+    capital = calcular_capital_actual_criptos(ciclo_id)
+    
+    # Efectivo en pool
+    cursor.execute("""
+        SELECT COALESCE(SUM(monto), 0) as efectivo
+        FROM efectivo_banco WHERE ciclo_id = ?
+    """, (ciclo_id,))
+    efectivo = cursor.fetchone()['efectivo']
+    
+    # Ganancia acumulada
+    cursor.execute("""
+        SELECT COALESCE(SUM(ganancia_neta), 0) as ganancia_total
+        FROM dias WHERE ciclo_id = ? AND estado = 'cerrado'
+    """, (ciclo_id,))
+    ganancia_total = cursor.fetchone()['ganancia_total']
+    
+    # Calcular días transcurridos
+    fecha_inicio = datetime.strptime(ciclo['fecha_inicio'], '%Y-%m-%d')
+    dias_transcurridos = (datetime.now() - fecha_inicio).days
+    dias_restantes = max(0, ciclo['dias_planificados'] - dias_transcurridos)
+    
+    return {
+        'ciclo': ciclo,
+        'dias': dias,
+        'dias_transcurridos': dias_transcurridos,
+        'dias_restantes': dias_restantes,
+        'capital_criptos': capital,
+        'efectivo_pool': efectivo,
+        'capital_total': capital + efectivo,
+        'ganancia_total': ganancia_total
+    }
+
+
+def mostrar_progreso_ciclo(ciclo_id):
+    """Muestra el progreso del ciclo en pantalla"""
+    
+    progreso = obtener_progreso_ciclo(ciclo_id)
+    if not progreso:
+        print("❌ No se pudo obtener el progreso del ciclo")
+        return
+    
+    ciclo = progreso['ciclo']
+    avance_pct = (progreso['dias_transcurridos'] / ciclo['dias_planificados'] * 100) if ciclo['dias_planificados'] > 0 else 0
+    
+    print("\n" + "="*60)
+    print("PROGRESO DEL CICLO GLOBAL")
+    print("="*60)
+    print(f"\n🔄 Ciclo #{ciclo['id']}")
+    print(f"Fecha inicio: {ciclo['fecha_inicio']}")
+    print(f"Días planificados: {ciclo['dias_planificados']}")
+    print(f"Días transcurridos: {progreso['dias_transcurridos']}")
+    print(f"Días restantes: {progreso['dias_restantes']}")
+    print(f"Avance: {avance_pct:.1f}%")
+    
+    print(f"\n💰 CAPITAL:")
+    print(f"Inversión inicial: ${ciclo['inversion_inicial']:.2f}")
+    print(f"En criptos: ${progreso['capital_criptos']:.2f}")
+    print(f"En pool (efectivo): ${progreso['efectivo_pool']:.2f}")
+    print(f"Total actual: ${progreso['capital_total']:.2f}")
+    
+    print(f"\n📊 RENDIMIENTO:")
+    print(f"Ganancia acumulada: ${progreso['ganancia_total']:.2f}")
+    if ciclo['inversion_inicial'] > 0:
+        roi = (progreso['ganancia_total'] / ciclo['inversion_inicial']) * 100
+        print(f"ROI total: {roi:.2f}%")
+    
+    if progreso['dias']:
+        print(f"\n📅 Resumen de días:")
+        for dia in progreso['dias']:
+            estado_emoji = "✅" if dia['estado'] == 'cerrado' else "🔄"
+            print(f"  {estado_emoji} Día {dia['numero_dia']:2d} ({dia['fecha']}) - ${dia['ganancia_neta']:7.2f} [{dia['estado'].upper()}]")
+    
+    print("="*60)
+
+
+# ===================================================================
+# FUNCIONES DE UTILIDAD
+# ===================================================================
+
+def validar_limite_ventas(dia_id):
+    """Valida si se puede registrar otra venta según el límite diario"""
+    ventas_hoy = contar_ventas_del_dia(dia_id)
+    
+    MINIMO_VENTAS = 3
+    MAXIMO_VENTAS = 5
+    
+    if ventas_hoy >= MAXIMO_VENTAS:
+        return False, f"Límite alcanzado: {MAXIMO_VENTAS} ventas por día"
+    
+    return True, f"{ventas_hoy}/{MAXIMO_VENTAS} ventas realizadas"
+
+
+def verificar_capital_disponible(ciclo_id):
+    """Verifica si hay capital disponible para operar"""
+    criptos = obtener_criptos_disponibles(ciclo_id)
+    
+    if not criptos:
+        # Verificar si hay efectivo en el pool
+        cursor.execute("""
+            SELECT COALESCE(SUM(monto), 0) as efectivo
+            FROM efectivo_banco WHERE ciclo_id = ?
+        """, (ciclo_id,))
+        efectivo = cursor.fetchone()['efectivo']
+        
+        if efectivo > 0:
+            return True, f"Hay ${efectivo:.2f} en el pool de reinversión"
+        return False, "No hay capital disponible"
+    
+    return True, f"{len(criptos)} cripto(s) disponible(s)"
+
+
+# ===================================================================
+# COMMIT Y CIERRE
+# ===================================================================
+
+def guardar_cambios():
+    """Guarda los cambios en la base de datos"""
+    conn.commit()
+    log.info("Cambios guardados en la base de datos", categoria='general')
+
+
+def cerrar_conexion():
+    """Cierra la conexión a la base de datos"""
+    conn.close()
+    log.info("Conexión a base de datos cerrada", categoria='general')
