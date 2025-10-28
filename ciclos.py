@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 =============================================================================
 MÓDULO DE CICLOS - Gestión de Ciclos Globales (CORREGIDO)
