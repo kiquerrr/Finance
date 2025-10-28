@@ -382,3 +382,107 @@ TOTAL: $0.00 USD
 [GENERAL] [2025-10-27 21:54:39] [INFO] Sistema iniciado
 [2025-10-27 21:55:03] [INFO] Sistema cerrado por el usuario
 [GENERAL] [2025-10-27 21:55:03] [INFO] Sistema cerrado por el usuario
+[CICLOS] [2025-10-27 22:16:57] [INFO] 
+    NUEVO CICLO CREADO
+    ID: #1
+    Duración: 7 días
+    Capital inicial: $0.00 USD
+    Fecha inicio: 2025-10-27
+    Fecha fin estimada: 2025-11-03
+    
+[CICLOS] [2025-10-27 22:18:12] [INFO] 
+    NUEVO CICLO CREADO
+    ID: #2
+    Duración: 7 días
+    Capital inicial: $0.00 USD
+    Fecha inicio: 2025-10-27
+    Fecha fin estimada: 2025-11-03
+    
+[CICLOS] [2025-10-27 22:18:13] [INFO] 
+    NUEVO CICLO CREADO
+    ID: #3
+    Duración: 7 días
+    Capital inicial: $0.00 USD
+    Fecha inicio: 2025-10-27
+    Fecha fin estimada: 2025-11-03
+    
+[BOVEDA] [2025-10-27 22:18:13] [INFO] 
+    COMPRA REGISTRADA
+    Ciclo: #3
+    Cripto: Tether
+    Cantidad comprada: 0.05
+    Monto invertido: $3000.00 USD
+    Tasa de compra: 1 Tether = $60000.0000 USD
+    
+[CICLOS] [2025-10-27 22:19:47] [INFO] 
+    NUEVO CICLO CREADO
+    ID: #4
+    Duración: 7 días
+    Capital inicial: $3000.00 USD
+    Fecha inicio: 2025-10-27
+    Fecha fin estimada: 2025-11-03
+    
+[CICLOS] [2025-10-27 22:19:48] [INFO] 
+    NUEVO CICLO CREADO
+    ID: #5
+    Duración: 7 días
+    Capital inicial: $3000.00 USD
+    Fecha inicio: 2025-10-27
+    Fecha fin estimada: 2025-11-03
+    
+[BOVEDA] [2025-10-27 22:19:48] [INFO] 
+    COMPRA REGISTRADA
+    Ciclo: #5
+    Cripto: Tether
+    Cantidad comprada: 0.05
+    Monto invertido: $3000.00 USD
+    Tasa de compra: 1 Tether = $60000.0000 USD
+    
+[CICLOS] [2025-10-27 22:22:27] [INFO] 
+    NUEVO CICLO CREADO
+    ID: #1
+    Duración: 7 días
+    Capital inicial: $0.00 USD
+    Fecha inicio: 2025-10-27
+    Fecha fin estimada: 2025-11-03
+    
+[CICLOS] [2025-10-27 22:22:27] [INFO] 
+    NUEVO CICLO CREADO
+    ID: #2
+    Duración: 7 días
+    Capital inicial: $0.00 USD
+    Fecha inicio: 2025-10-27
+    Fecha fin estimada: 2025-11-03
+    
+[BOVEDA] [2025-10-27 22:22:27] [INFO] 
+    COMPRA REGISTRADA
+    Ciclo: #2
+    Cripto: Bitcoin
+    Cantidad comprada: 0.05
+    Monto invertido: $3000.00 USD
+    Tasa de compra: 1 Bitcoin = $60000.0000 USD
+    
+[CICLOS] [2025-10-27 22:22:45] [INFO] 
+    NUEVO CICLO CREADO
+    ID: #1
+    Duración: 7 días
+    Capital inicial: $0.00 USD
+    Fecha inicio: 2025-10-27
+    Fecha fin estimada: 2025-11-03
+    
+[CICLOS] [2025-10-27 22:22:45] [INFO] 
+    NUEVO CICLO CREADO
+    ID: #2
+    Duración: 7 días
+    Capital inicial: $0.00 USD
+    Fecha inicio: 2025-10-27
+    Fecha fin estimada: 2025-11-03
+    
+[BOVEDA] [2025-10-27 22:22:45] [INFO] 
+    COMPRA REGISTRADA
+    Ciclo: #2
+    Cripto: Bitcoin
+    Cantidad comprada: 0.05
+    Monto invertido: $3000.00 USD
+    Tasa de compra: 1 Bitcoin = $60000.0000 USD
+    
