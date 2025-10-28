@@ -46,8 +46,8 @@ def crear_ciclo(dias_duracion=15):
     # Si no hay capital, advertir
     if inversion_inicial == 0:
         print("\n⚠️  ADVERTENCIA: No hay capital en la bóveda")
-        print("   La inversión inicial será $0.00")
-        print("   Fondea la bóveda antes de operar")
+        print("    La inversión inicial será $0.00")
+        print("    Fondea la bóveda antes de operar")
         
         continuar = input("\n¿Continuar creando el ciclo? (s/n): ").lower()
         if continuar != 's':
@@ -83,10 +83,10 @@ def crear_ciclo(dias_duracion=15):
     )
     
     print(f"\n✅ Nuevo ciclo #{ciclo_id} creado exitosamente!")
-    print(f"   Duración: {dias_duracion} días")
-    print(f"   Fecha inicio: {fecha_inicio}")
-    print(f"   Fecha fin estimada: {fecha_fin}")
-    print(f"   Inversión inicial: ${inversion_inicial:.2f}")
+    print(f"    Duración: {dias_duracion} días")
+    print(f"    Fecha inicio: {fecha_inicio}")
+    print(f"    Fecha fin estimada: {fecha_fin}")
+    print(f"    Inversión inicial: ${inversion_inicial:.2f}")
     
     return ciclo_id
 
@@ -225,8 +225,8 @@ def extender_ciclo(ciclo_id, dias_adicionales):
     )
     
     print(f"\n✅ Ciclo extendido")
-    print(f"   Duración nueva: {dias_nuevos} días")
-    print(f"   Nueva fecha fin: {fecha_fin_nueva}")
+    print(f"    Duración nueva: {dias_nuevos} días")
+    print(f"    Nueva fecha fin: {fecha_fin_nueva}")
     
     return True
 
@@ -263,7 +263,7 @@ def cerrar_ciclo(ciclo_id, forzar=False):
     dias_abiertos = cursor.fetchone()['dias_abiertos']
     if dias_abiertos > 0:
         print(f"❌ No se puede cerrar el ciclo: hay {dias_abiertos} día(s) abierto(s)")
-        print("   Cierra todos los días antes de cerrar el ciclo")
+        print("    Cierra todos los días antes de cerrar el ciclo")
         return False
     
     # Verificar si el ciclo está completo
@@ -352,22 +352,22 @@ def cerrar_ciclo(ciclo_id, forzar=False):
     print("CICLO CERRADO")
     print("="*60)
     print(f"\n📊 RESUMEN DEL CICLO #{ciclo_id}")
-    print(f"   Duración planificada: {ciclo['dias_planificados']} días")
-    print(f"   Días transcurridos: {dias_transcurridos}")
-    print(f"   Días operados: {dias_operados}")
+    print(f"    Duración planificada: {ciclo['dias_planificados']} días")
+    print(f"    Días transcurridos: {dias_transcurridos}")
+    print(f"    Días operados: {dias_operados}")
     
     print(f"\n💰 BALANCE FINANCIERO:")
-    print(f"   Inversión inicial: ${inversion_inicial:.2f}")
-    print(f"   Ganancia total: ${ganancia_total:.2f}")
-    print(f"   Capital final: ${capital_final:.2f}")
-    print(f"   ROI total: {roi_total:.2f}%")
+    print(f"    Inversión inicial: ${inversion_inicial:.2f}")
+    print(f"    Ganancia total: ${ganancia_total:.2f}")
+    print(f"    Capital final: ${capital_final:.2f}")
+    print(f"    ROI total: {roi_total:.2f}%")
     
     if dias_operados > 0:
         ganancia_promedio = ganancia_total / dias_operados
         roi_diario = roi_total / dias_operados
         print(f"\n📈 PROMEDIOS:")
-        print(f"   Ganancia diaria promedio: ${ganancia_promedio:.2f}")
-        print(f"   ROI diario promedio: {roi_diario:.2f}%")
+        print(f"    Ganancia diaria promedio: ${ganancia_promedio:.2f}")
+        print(f"    ROI diario promedio: {roi_diario:.2f}%")
     
     print("="*60)
     
@@ -417,31 +417,31 @@ def mostrar_info_ciclo(ciclo_id):
     print("\n" + "="*60)
     print(f"CICLO GLOBAL #{ciclo_id}")
     print("="*60)
-    print(f"\n📅 FECHAS:")
-    print(f"   Inicio: {ciclo['fecha_inicio']}")
-    print(f"   Fin estimada: {ciclo['fecha_fin_estimada']}")
-    print(f"   Estado: {ciclo['estado'].upper()}")
+    print(f"\n🗓️ FECHAS:")
+    print(f"    Inicio: {ciclo['fecha_inicio']}")
+    print(f"    Fin estimada: {ciclo['fecha_fin_estimada']}")
+    print(f"    Estado: {ciclo['estado'].upper()}")
     
-    print(f"\n⏱️  PROGRESO:")
-    print(f"   Días planificados: {ciclo['dias_planificados']}")
-    print(f"   Días transcurridos: {dias_transcurridos}")
-    print(f"   Días restantes: {dias_restantes}")
+    print(f"\n⏱️ PROGRESO:")
+    print(f"    Días planificados: {ciclo['dias_planificados']}")
+    print(f"    Días transcurridos: {dias_transcurridos}")
+    print(f"    Días restantes: {dias_restantes}")
     
     avance = (dias_transcurridos / ciclo['dias_planificados'] * 100) if ciclo['dias_planificados'] > 0 else 0
-    print(f"   Avance: {avance:.1f}%")
+    print(f"    Avance: {avance:.1f}%")
     
     print(f"\n💰 CAPITAL:")
-    print(f"   Inversión inicial: ${ciclo['inversion_inicial']:.2f}")
+    print(f"    Inversión inicial: ${ciclo['inversion_inicial']:.2f}")
     
     if criptos:
-        print(f"\n   Criptos actuales:")
+        print(f"\n    Criptos actuales:")
         for cripto in criptos:
             print(f"      • {cripto['cantidad']:.8f} {cripto['simbolo']} = ${cripto['valor']:.2f}")
     
     if efectivo > 0:
-        print(f"\n   Efectivo en pool: ${efectivo:.2f}")
+        print(f"\n    Efectivo en pool: ${efectivo:.2f}")
     
-    print(f"\n   Capital total actual: ${capital_total:.2f}")
+    print(f"\n    Capital total actual: ${capital_total:.2f}")
     
     # Ganancia acumulada
     cursor.execute("""
@@ -453,8 +453,8 @@ def mostrar_info_ciclo(ciclo_id):
     if ganancia > 0:
         roi = (ganancia / ciclo['inversion_inicial'] * 100) if ciclo['inversion_inicial'] > 0 else 0
         print(f"\n📈 RENDIMIENTO:")
-        print(f"   Ganancia acumulada: ${ganancia:.2f}")
-        print(f"   ROI: {roi:.2f}%")
+        print(f"    Ganancia acumulada: ${ganancia:.2f}")
+        print(f"    ROI: {roi:.2f}%")
     
     print("="*60)
 
@@ -481,62 +481,33 @@ def mostrar_opciones_ciclo(ciclo_id):
     if dia_abierto:
         print(f"⚠️  Hay un día abierto (#{dia_abierto['numero_dia']}). Debes cerrarlo primero.")
         print("[1] CERRAR día actual y continuar")
-        opciones.append("CERRAR_DIA")
+        opciones.append("CERRAR_DIA_CONTINUAR") # Cambiado para evitar conflicto
     elif puede_operar:
-        print("[1] CONTINUAR operando en el ciclo")
+        print("[1] CONTINUAR operando en el ciclo (Abrir nuevo día)")
         opciones.append("CONTINUAR")
     else:
         if accion == "CERRAR_O_EXTENDER":
             print("⚠️  El ciclo ha completado su duración planificada")
+        elif accion is None:
+             print("⚠️  No se puede operar en este momento.")
     
-    print("[2] VER PROGRESO del ciclo")
+    print("[2] VER PROGRESO y estadísticas del ciclo")
     opciones.append("PROGRESO")
     
+    # Lógica para opciones 3 y 4
     if completado:
         print("[3] EXTENDER el ciclo (agregar más días)")
         opciones.append("EXTENDER")
         print("[4] CERRAR el ciclo e iniciar uno nuevo")
         opciones.append("CERRAR")
+        print("[5] CANCELAR y volver al menú")
+        opciones.append("CANCELAR")
     else:
-        print("[3] CERRAR el ciclo e iniciar uno nuevo")
+        # En este caso, la opción 3 es CERRAR
+        print("[3] CERRAR el ciclo e iniciar uno nuevo (Cierre anticipado)")
         opciones.append("CERRAR")
-    
-    print("[4] CANCELAR y volver al menú" if completado else "[4] CANCELAR y volver al menú")
-    opciones.append("CANCELAR")
-    
-    print("="*60)
-    
-    return opciones_operar, accion = puede_operar_dia(ciclo_id)
-    
-    print("\n" + "="*60)
-    print("¿QUÉ DESEAS HACER?")
-    print("="*60)
-    
-    opciones = []
-    
-    if puede_operar:
-        print("[1] CONTINUAR operando en el ciclo")
-        opciones.append("CONTINUAR")
-    else:
-        if accion == "CERRAR_DIA":
-            print("⚠️  Hay un día abierto. Debes cerrarlo primero.")
-        elif accion == "CERRAR_O_EXTENDER":
-            print("⚠️  El ciclo ha completado su duración planificada")
-    
-    print("[2] VER PROGRESO del ciclo")
-    opciones.append("PROGRESO")
-    
-    if completado:
-        print("[3] EXTENDER el ciclo (agregar más días)")
-        opciones.append("EXTENDER")
-        print("[4] CERRAR el ciclo e iniciar uno nuevo")
-        opciones.append("CERRAR")
-    else:
-        print("[3] CERRAR el ciclo e iniciar uno nuevo")
-        opciones.append("CERRAR")
-    
-    print("[4] CANCELAR y volver al menú" if completado else "[4] CANCELAR y volver al menú")
-    opciones.append("CANCELAR")
+        print("[4] CANCELAR y volver al menú")
+        opciones.append("CANCELAR")
     
     print("="*60)
     
@@ -564,44 +535,83 @@ def gestionar_ciclo_activo():
     # Mostrar información del ciclo
     mostrar_info_ciclo(ciclo['id'])
     
-    # Mostrar opciones
-    opciones = mostrar_opciones_ciclo(ciclo['id'])
-    
     while True:
-        seleccion = input("\nSelecciona una opción (1-4): ").strip()
+        # Mostrar opciones
+        opciones = mostrar_opciones_ciclo(ciclo['id'])
         
-        if seleccion == "1" and "CONTINUAR" in opciones:
-            return ciclo['id']  # Retornar para continuar operando
+        seleccion = input("\nSelecciona una opción: ").strip()
         
-        elif seleccion == "2":
-            from dias import mostrar_progreso_ciclo
-            mostrar_progreso_ciclo(ciclo['id'])
-            input("\nPresiona Enter para continuar...")
-            return gestionar_ciclo_activo()  # Volver a mostrar opciones
-        
-        elif seleccion == "3":
-            completado, _ = verificar_ciclo_completado(ciclo['id'])
-            if completado and "EXTENDER" in opciones:
-                # Opción de extender
-                try:
-                    dias = int(input("\n¿Cuántos días adicionales?: "))
-                    extender_ciclo(ciclo['id'], dias)
-                    input("\nPresiona Enter para continuar...")
-                    return gestionar_ciclo_activo()
-                except ValueError:
-                    print("❌ Número inválido")
+        # Opciones para ciclos NO COMPLETADOS
+        if not verificar_ciclo_completado(ciclo['id'])[0]:
+            if seleccion == "1":
+                if "CONTINUAR" in opciones or "CERRAR_DIA_CONTINUAR" in opciones:
+                    return ciclo['id']  # Retornar para continuar operando o ir al submenú del día
+                else:
+                    print("❌ Opción inválida o no disponible.")
+                    continue
+
+            elif seleccion == "2":
+                from dias import mostrar_progreso_ciclo
+                mostrar_progreso_ciclo(ciclo['id'])
+                input("\nPresiona Enter para continuar...")
+                # Repetir bucle para mostrar info y opciones de nuevo
+            
+            elif seleccion == "3":
+                if "CERRAR" in opciones:
+                    return cerrar_y_crear_nuevo(ciclo['id'])
+                else:
+                    print("❌ Opción inválida o no disponible.")
+
+            elif seleccion == "4":
+                if "CANCELAR" in opciones:
+                    return None  # Cancelar
+                else:
+                    print("❌ Opción inválida o no disponible.")
+            
             else:
-                # Opción de cerrar
-                return cerrar_y_crear_nuevo(ciclo['id'])
-        
-        elif seleccion == "4":
-            if "CERRAR" in opciones and seleccion == "4":
-                return cerrar_y_crear_nuevo(ciclo['id'])
-            else:
-                return None  # Cancelar
-        
+                 print("❌ Opción inválida")
+
+        # Opciones para ciclos COMPLETADOS
         else:
-            print("❌ Opción inválida")
+            if seleccion == "1":
+                if "CERRAR_DIA_CONTINUAR" in opciones:
+                     return ciclo['id'] # Cierra día y luego se le ofrecerá CERRAR/EXTENDER
+                else:
+                    print("❌ Opción inválida. El ciclo completó su duración, no puede CONTINUAR operando un día nuevo.")
+
+            elif seleccion == "2":
+                from dias import mostrar_progreso_ciclo
+                mostrar_progreso_ciclo(ciclo['id'])
+                input("\nPresiona Enter para continuar...")
+                # Repetir bucle para mostrar info y opciones de nuevo
+            
+            elif seleccion == "3":
+                if "EXTENDER" in opciones:
+                    # Opción de extender
+                    try:
+                        dias = int(input("\n¿Cuántos días adicionales?: "))
+                        extender_ciclo(ciclo['id'], dias)
+                        input("\nPresiona Enter para continuar...")
+                        # Repetir bucle para mostrar info y opciones de nuevo
+                    except ValueError:
+                        print("❌ Número inválido")
+                else:
+                    print("❌ Opción inválida o no disponible.")
+
+            elif seleccion == "4":
+                if "CERRAR" in opciones:
+                    return cerrar_y_crear_nuevo(ciclo['id'])
+                else:
+                    print("❌ Opción inválida o no disponible.")
+            
+            elif seleccion == "5":
+                if "CANCELAR" in opciones:
+                    return None  # Cancelar
+                else:
+                    print("❌ Opción inválida o no disponible.")
+            
+            else:
+                print("❌ Opción inválida")
 
 
 def crear_nuevo_ciclo_interactivo():
@@ -731,26 +741,26 @@ def mostrar_estadisticas_completas():
     print("="*60)
     
     print(f"\n📊 RESUMEN:")
-    print(f"   Total de ciclos: {stats['total_ciclos']}")
-    print(f"   Ciclos activos: {stats['ciclos_activos']}")
-    print(f"   Ciclos cerrados: {stats['ciclos_cerrados']}")
+    print(f"    Total de ciclos: {stats['total_ciclos']}")
+    print(f"    Ciclos activos: {stats['ciclos_activos']}")
+    print(f"    Ciclos cerrados: {stats['ciclos_cerrados']}")
     
     print(f"\n💰 FINANCIERO:")
-    print(f"   Inversión total histórica: ${stats['inversion_total']:.2f}")
-    print(f"   Ganancia total histórica: ${stats['ganancia_total']:.2f}")
-    print(f"   ROI promedio: {stats['roi_promedio']:.2f}%")
+    print(f"    Inversión total histórica: ${stats['inversion_total']:.2f}")
+    print(f"    Ganancia total histórica: ${stats['ganancia_total']:.2f}")
+    print(f"    ROI promedio: {stats['roi_promedio']:.2f}%")
     
     # Últimos ciclos
     ciclos_recientes = listar_ciclos_historicos(5)
     
     if ciclos_recientes:
-        print(f"\n📋 ÚLTIMOS CICLOS CERRADOS:")
+        print(f"\n📜 ÚLTIMOS CICLOS CERRADOS:")
         for ciclo in ciclos_recientes:
-            print(f"\n   Ciclo #{ciclo['id']}")
-            print(f"   • Fechas: {ciclo['fecha_inicio']} → {ciclo['fecha_cierre']}")
-            print(f"   • Días operados: {ciclo['dias_operados']}")
-            print(f"   • Ganancia: ${ciclo['ganancia_total']:.2f}")
-            print(f"   • ROI: {ciclo['roi_total']:.2f}%")
+            print(f"\n    Ciclo #{ciclo['id']}")
+            print(f"    • Fechas: {ciclo['fecha_inicio']} → {ciclo['fecha_cierre']}")
+            print(f"    • Días operados: {ciclo['dias_operados']}")
+            print(f"    • Ganancia: ${ciclo['ganancia_total']:.2f}")
+            print(f"    • ROI: {ciclo['roi_total']:.2f}%")
     
     print("="*60)
 
