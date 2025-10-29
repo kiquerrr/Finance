@@ -1,23 +1,20 @@
+# -*- coding: utf-8 -*-
 """
 =============================================================================
-MÓDULO DE CONFIGURACIÓN
+MÓDULO DE CONFIGURACIÓN (CORREGIDO)
 =============================================================================
 Gestiona todas las configuraciones del sistema:
 - Comisiones (manuales y por API)
 - Ganancias objetivo
 - APIs y plataformas
 - Parámetros del sistema
+✅ Ahora usa db_manager para conexiones seguras
 """
 
-import sqlite3
 import json
 from datetime import datetime
-from logger import log
-
-# Conexión a la base de datos
-conn = sqlite3.connect('arbitraje.db')
-conn.row_factory = sqlite3.Row
-cursor = conn.cursor()
+from core.logger import log
+from core.db_manager import db
 
 
 # ===================================================================
@@ -27,55 +24,55 @@ cursor = conn.cursor()
 def inicializar_tablas_config():
     """Crea las tablas de configuración si no existen"""
     
-    # Tabla de configuración general
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS config (
-            id INTEGER PRIMARY KEY,
-            comision_default REAL DEFAULT 0.35,
-            ganancia_neta_default REAL DEFAULT 2.0,
-            modo_comision TEXT DEFAULT 'manual',
-            api_comision_activa INTEGER DEFAULT 0,
-            limite_ventas_min INTEGER DEFAULT 3,
-            limite_ventas_max INTEGER DEFAULT 5,
-            actualizado TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    
-    # Tabla de APIs configuradas
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS apis_config (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nombre TEXT NOT NULL,
-            plataforma TEXT NOT NULL,
-            api_key TEXT,
-            api_secret TEXT,
-            activa INTEGER DEFAULT 1,
-            tipo TEXT,
-            fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            ultima_actualizacion TIMESTAMP
-        )
-    """)
-    
-    # Tabla de comisiones por plataforma
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS comisiones_plataforma (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            plataforma TEXT NOT NULL,
-            tipo_operacion TEXT NOT NULL,
-            comision REAL NOT NULL,
-            fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    
-    # Insertar config por defecto si no existe
-    cursor.execute("SELECT COUNT(*) as total FROM config")
-    if cursor.fetchone()['total'] == 0:
+    with db.get_cursor(commit=True) as cursor:
+        # Tabla de configuración general
         cursor.execute("""
-            INSERT INTO config (id, comision_default, ganancia_neta_default)
-            VALUES (1, 0.35, 2.0)
+            CREATE TABLE IF NOT EXISTS config (
+                id INTEGER PRIMARY KEY,
+                comision_default REAL DEFAULT 0.35,
+                ganancia_neta_default REAL DEFAULT 2.0,
+                modo_comision TEXT DEFAULT 'manual',
+                api_comision_activa INTEGER DEFAULT 0,
+                limite_ventas_min INTEGER DEFAULT 3,
+                limite_ventas_max INTEGER DEFAULT 5,
+                actualizado TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
         """)
+        
+        # Tabla de APIs configuradas
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS apis_config (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL,
+                plataforma TEXT NOT NULL,
+                api_key TEXT,
+                api_secret TEXT,
+                activa INTEGER DEFAULT 1,
+                tipo TEXT,
+                fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                ultima_actualizacion TIMESTAMP
+            )
+        """)
+        
+        # Tabla de comisiones por plataforma
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS comisiones_plataforma (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plataforma TEXT NOT NULL,
+                tipo_operacion TEXT NOT NULL,
+                comision REAL NOT NULL,
+                fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Insertar config por defecto si no existe
+        cursor.execute("SELECT COUNT(*) as total FROM config")
+        if cursor.fetchone()['total'] == 0:
+            cursor.execute("""
+                INSERT INTO config (id, comision_default, ganancia_neta_default)
+                VALUES (1, 0.35, 2.0)
+            """)
     
-    conn.commit()
     log.info("Tablas de configuración inicializadas", categoria='general')
 
 
@@ -85,11 +82,10 @@ def inicializar_tablas_config():
 
 def obtener_comision_actual():
     """Obtiene la comisión configurada actualmente"""
-    cursor.execute("""
+    return db.execute_query("""
         SELECT comision_default, modo_comision, api_comision_activa
         FROM config WHERE id = 1
-    """)
-    return cursor.fetchone()
+    """, fetch_one=True)
 
 
 def modificar_comision_manual(nueva_comision):
@@ -101,7 +97,7 @@ def modificar_comision_manual(nueva_comision):
     
     comision_anterior = obtener_comision_actual()['comision_default']
     
-    cursor.execute("""
+    db.execute_update("""
         UPDATE config SET
             comision_default = ?,
             modo_comision = 'manual',
@@ -109,8 +105,6 @@ def modificar_comision_manual(nueva_comision):
             actualizado = datetime('now')
         WHERE id = 1
     """, (nueva_comision,))
-    
-    conn.commit()
     
     log.info(
         f"Comisión actualizada manualmente: {comision_anterior}% → {nueva_comision}%",
@@ -125,15 +119,13 @@ def configurar_api_comision(plataforma, api_key=None, api_secret=None):
     """Configura API para obtener comisiones automáticamente"""
     
     # Verificar si ya existe
-    cursor.execute("""
+    existe = db.execute_query("""
         SELECT id FROM apis_config
         WHERE plataforma = ? AND tipo = 'comision'
-    """, (plataforma,))
-    
-    existe = cursor.fetchone()
+    """, (plataforma,), fetch_one=True)
     
     if existe:
-        cursor.execute("""
+        db.execute_update("""
             UPDATE apis_config SET
                 api_key = ?,
                 api_secret = ?,
@@ -142,12 +134,10 @@ def configurar_api_comision(plataforma, api_key=None, api_secret=None):
             WHERE id = ?
         """, (api_key, api_secret, existe['id']))
     else:
-        cursor.execute("""
+        db.execute_update("""
             INSERT INTO apis_config (nombre, plataforma, api_key, api_secret, tipo, activa)
             VALUES (?, ?, ?, ?, 'comision', 1)
         """, (f"API Comisiones {plataforma}", plataforma, api_key, api_secret))
-    
-    conn.commit()
     
     log.info(f"API de comisiones configurada para {plataforma}", categoria='general')
     print(f"✅ API configurada para obtener comisiones de {plataforma}")
@@ -162,13 +152,11 @@ def obtener_comision_desde_api(plataforma):
     """
     
     # Obtener configuración de API
-    cursor.execute("""
+    api_config = db.execute_query("""
         SELECT api_key, api_secret
         FROM apis_config
         WHERE plataforma = ? AND tipo = 'comision' AND activa = 1
-    """, (plataforma,))
-    
-    api_config = cursor.fetchone()
+    """, (plataforma,), fetch_one=True)
     
     if not api_config:
         log.advertencia(f"No hay API configurada para {plataforma}", categoria='general')
@@ -196,12 +184,10 @@ def actualizar_comision_automatica():
         return False
     
     # Obtener APIs activas
-    cursor.execute("""
+    apis = db.execute_query("""
         SELECT plataforma FROM apis_config
         WHERE tipo = 'comision' AND activa = 1
     """)
-    
-    apis = cursor.fetchall()
     
     if not apis:
         print("⚠️  No hay APIs configuradas")
@@ -211,13 +197,12 @@ def actualizar_comision_automatica():
     comision_obtenida = obtener_comision_desde_api(apis[0]['plataforma'])
     
     if comision_obtenida:
-        cursor.execute("""
+        db.execute_update("""
             UPDATE config SET
                 comision_default = ?,
                 actualizado = datetime('now')
             WHERE id = 1
         """, (comision_obtenida,))
-        conn.commit()
         
         print(f"✅ Comisión actualizada desde API: {comision_obtenida}%")
         log.info(f"Comisión actualizada automáticamente: {comision_obtenida}%", categoria='general')
@@ -235,8 +220,11 @@ def actualizar_comision_automatica():
 
 def obtener_ganancia_objetivo():
     """Obtiene la ganancia objetivo configurada"""
-    cursor.execute("SELECT ganancia_neta_default FROM config WHERE id = 1")
-    return cursor.fetchone()['ganancia_neta_default']
+    resultado = db.execute_query(
+        "SELECT ganancia_neta_default FROM config WHERE id = 1",
+        fetch_one=True
+    )
+    return resultado['ganancia_neta_default']
 
 
 def modificar_ganancia_objetivo(nueva_ganancia):
@@ -248,14 +236,12 @@ def modificar_ganancia_objetivo(nueva_ganancia):
     
     ganancia_anterior = obtener_ganancia_objetivo()
     
-    cursor.execute("""
+    db.execute_update("""
         UPDATE config SET
             ganancia_neta_default = ?,
             actualizado = datetime('now')
         WHERE id = 1
     """, (nueva_ganancia,))
-    
-    conn.commit()
     
     log.info(
         f"Ganancia objetivo actualizada: {ganancia_anterior}% → {nueva_ganancia}%",
@@ -267,80 +253,26 @@ def modificar_ganancia_objetivo(nueva_ganancia):
 
 
 # ===================================================================
-# CONFIGURACIÓN DE PLATAFORMAS Y APIS
-# ===================================================================
-
-def listar_apis_configuradas():
-    """Lista todas las APIs configuradas"""
-    cursor.execute("""
-        SELECT * FROM apis_config
-        ORDER BY activa DESC, plataforma
-    """)
-    return cursor.fetchall()
-
-
-def agregar_api_plataforma(nombre, plataforma, api_key, api_secret, tipo='trading'):
-    """Agrega una nueva API de plataforma"""
-    
-    cursor.execute("""
-        INSERT INTO apis_config (nombre, plataforma, api_key, api_secret, tipo, activa)
-        VALUES (?, ?, ?, ?, ?, 1)
-    """, (nombre, plataforma, api_key, api_secret, tipo))
-    
-    conn.commit()
-    
-    log.info(f"Nueva API agregada: {nombre} ({plataforma})", categoria='general')
-    print(f"✅ API agregada: {nombre}")
-    return True
-
-
-def activar_desactivar_api(api_id, activa):
-    """Activa o desactiva una API"""
-    cursor.execute("""
-        UPDATE apis_config SET
-            activa = ?,
-            ultima_actualizacion = datetime('now')
-        WHERE id = ?
-    """, (1 if activa else 0, api_id))
-    
-    conn.commit()
-    
-    estado = "activada" if activa else "desactivada"
-    log.info(f"API {api_id} {estado}", categoria='general')
-    return True
-
-
-def eliminar_api(api_id):
-    """Elimina una API configurada"""
-    cursor.execute("DELETE FROM apis_config WHERE id = ?", (api_id,))
-    conn.commit()
-    
-    log.info(f"API {api_id} eliminada", categoria='general')
-    print(f"✅ API eliminada")
-    return True
-
-
-# ===================================================================
-# CONFIGURACIÓN DE LÍMITES
+# LÍMITES DE VENTAS
 # ===================================================================
 
 def obtener_limites_ventas():
-    """Obtiene los límites de ventas diarias"""
-    cursor.execute("""
+    """Obtiene los límites de ventas configurados"""
+    return db.execute_query("""
         SELECT limite_ventas_min, limite_ventas_max
         FROM config WHERE id = 1
-    """)
-    return cursor.fetchone()
+    """, fetch_one=True)
 
 
 def modificar_limites_ventas(minimo, maximo):
     """Modifica los límites de ventas por día"""
     
-    if minimo < 1 or maximo < minimo or maximo > 20:
+    if minimo < 0 or maximo < minimo:
         log.error("Límites inválidos", f"Min: {minimo}, Max: {maximo}")
+        print("❌ Límites inválidos")
         return False
     
-    cursor.execute("""
+    db.execute_update("""
         UPDATE config SET
             limite_ventas_min = ?,
             limite_ventas_max = ?,
@@ -348,10 +280,61 @@ def modificar_limites_ventas(minimo, maximo):
         WHERE id = 1
     """, (minimo, maximo))
     
-    conn.commit()
-    
     log.info(f"Límites de ventas actualizados: {minimo}-{maximo}", categoria='general')
-    print(f"✅ Límites actualizados: {minimo} mín, {maximo} máx")
+    print(f"✅ Límites actualizados: {minimo}-{maximo} ventas/día")
+    return True
+
+
+# ===================================================================
+# GESTIÓN DE APIs
+# ===================================================================
+
+def listar_apis_configuradas():
+    """Lista todas las APIs configuradas"""
+    return db.execute_query("""
+        SELECT * FROM apis_config
+        ORDER BY activa DESC, plataforma
+    """)
+
+
+def agregar_api_plataforma(nombre, plataforma, api_key, api_secret, tipo='trading'):
+    """Agrega una nueva API al sistema"""
+    
+    db.execute_update("""
+        INSERT INTO apis_config (nombre, plataforma, api_key, api_secret, tipo, activa)
+        VALUES (?, ?, ?, ?, ?, 1)
+    """, (nombre, plataforma, api_key, api_secret, tipo))
+    
+    log.info(f"Nueva API agregada: {nombre} ({plataforma})", categoria='general')
+    print(f"✅ API agregada: {nombre}")
+    return True
+
+
+def activar_desactivar_api(api_id, activar=True):
+    """Activa o desactiva una API"""
+    
+    estado = 1 if activar else 0
+    
+    db.execute_update("""
+        UPDATE apis_config SET
+            activa = ?,
+            ultima_actualizacion = datetime('now')
+        WHERE id = ?
+    """, (estado, api_id))
+    
+    accion = "activada" if activar else "desactivada"
+    log.info(f"API #{api_id} {accion}", categoria='general')
+    print(f"✅ API {accion}")
+    return True
+
+
+def eliminar_api(api_id):
+    """Elimina una API del sistema"""
+    
+    db.execute_update("DELETE FROM apis_config WHERE id = ?", (api_id,))
+    
+    log.info(f"API #{api_id} eliminada", categoria='general')
+    print(f"✅ API eliminada")
     return True
 
 
@@ -360,124 +343,91 @@ def modificar_limites_ventas(minimo, maximo):
 # ===================================================================
 
 def menu_configuracion():
-    """Menú interactivo de configuración"""
+    """Menú principal de configuración"""
     
     while True:
-        config = obtener_comision_actual()
-        ganancia = obtener_ganancia_objetivo()
-        limites = obtener_limites_ventas()
-        
         print("\n" + "="*60)
         print("CONFIGURACIÓN DEL SISTEMA")
         print("="*60)
-        print(f"\n📊 Configuración Actual:")
-        print(f"   Comisión: {config['comision_default']}% ({config['modo_comision']})")
-        print(f"   Ganancia objetivo: {ganancia}%")
-        print(f"   Límite de ventas: {limites['limite_ventas_min']}-{limites['limite_ventas_max']} por día")
-        
-        print("\n" + "="*60)
-        print("[1] Modificar Comisión")
-        print("[2] Configurar API de Comisiones")
-        print("[3] Actualizar Comisión desde API")
-        print("[4] Modificar Ganancia Objetivo")
-        print("[5] Configurar APIs de Plataformas")
-        print("[6] Modificar Límites de Ventas")
-        print("[7] Ver Todas las Configuraciones")
-        print("[8] Volver al Menú Principal")
+        print("[1] Configurar Comisión")
+        print("[2] Configurar Ganancia Objetivo")
+        print("[3] Configurar Límites de Ventas")
+        print("[4] Gestionar APIs")
+        print("[5] Ver Todas las Configuraciones")
+        print("[6] Exportar Configuración")
+        print("[7] Importar Configuración")
+        print("[8] Volver")
         print("="*60)
         
-        opcion = input("Seleccione una opción: ").strip()
+        opcion = input("\nSelecciona: ").strip()
         
         if opcion == "1":
             submenu_comision()
+        
         elif opcion == "2":
-            configurar_api_comision_menu()
-        elif opcion == "3":
-            actualizar_comision_automatica()
-            input("\nPresiona Enter para continuar...")
-        elif opcion == "4":
             submenu_ganancia()
-        elif opcion == "5":
-            submenu_apis_plataformas()
-        elif opcion == "6":
+        
+        elif opcion == "3":
             submenu_limites()
-        elif opcion == "7":
+        
+        elif opcion == "4":
+            submenu_apis()
+        
+        elif opcion == "5":
             mostrar_todas_configuraciones()
+        
+        elif opcion == "6":
+            archivo = input("\nNombre del archivo (config_backup.json): ").strip() or "config_backup.json"
+            exportar_configuracion(archivo)
+            input("\nPresiona Enter...")
+        
+        elif opcion == "7":
+            archivo = input("\nNombre del archivo (config_backup.json): ").strip() or "config_backup.json"
+            importar_configuracion(archivo)
+            input("\nPresiona Enter...")
+        
         elif opcion == "8":
             break
+        
         else:
             print("❌ Opción inválida")
 
 
 def submenu_comision():
-    """Submenú para configurar comisiones"""
+    """Submenú para configurar comisión"""
     
     print("\n" + "="*60)
     print("CONFIGURACIÓN DE COMISIÓN")
     print("="*60)
-    print("\n[1] Comisión Manual")
-    print("[2] Comisión Automática (desde API)")
-    print("[3] Volver")
+    
+    config = obtener_comision_actual()
+    print(f"\nComisión actual: {config['comision_default']}%")
+    print(f"Modo: {config['modo_comision']}")
+    
+    print("\n[1] Cambiar comisión manualmente")
+    print("[2] Configurar API de comisiones")
+    print("[3] Actualizar desde API")
+    print("[4] Volver")
     
     opcion = input("\nSelecciona: ").strip()
     
     if opcion == "1":
         try:
-            nueva = float(input("Ingresa la nueva comisión (%): "))
+            nueva = float(input("\nNueva comisión (%): "))
             modificar_comision_manual(nueva)
         except ValueError:
             print("❌ Valor inválido")
     
     elif opcion == "2":
-        config = obtener_comision_actual()
-        cursor.execute("""
-            UPDATE config SET
-                modo_comision = 'api',
-                api_comision_activa = 1
-            WHERE id = 1
-        """)
-        conn.commit()
-        print("✅ Modo API activado")
-        print("   Recuerda configurar una API en la opción [2] del menú principal")
-    
-    input("\nPresiona Enter para continuar...")
-
-
-def configurar_api_comision_menu():
-    """Menú para configurar API de comisiones"""
-    
-    print("\n" + "="*60)
-    print("CONFIGURAR API DE COMISIONES")
-    print("="*60)
-    print("\nPlataformas disponibles:")
-    print("[1] Binance P2P")
-    print("[2] Bybit P2P")
-    print("[3] Otra plataforma")
-    print("[4] Volver")
-    
-    opcion = input("\nSelecciona: ").strip()
-    
-    plataformas = {
-        "1": "Binance",
-        "2": "Bybit",
-        "3": "Otra"
-    }
-    
-    if opcion in plataformas and opcion != "4":
-        plataforma = plataformas[opcion]
-        
-        if opcion == "3":
-            plataforma = input("Nombre de la plataforma: ").strip()
-        
-        print(f"\nConfigurando API para {plataforma}")
-        print("NOTA: Las credenciales se almacenan de forma segura")
-        
+        plataforma = input("\nPlataforma (Binance/Bybit/etc): ").strip()
         api_key = input("API Key: ").strip()
         api_secret = input("API Secret: ").strip()
-        
         configurar_api_comision(plataforma, api_key, api_secret)
     
-    input("\nPresiona Enter para continuar...")
+    elif opcion == "3":
+        actualizar_comision_automatica()
+    
+    input("\nPresiona Enter...")
 
 
 def submenu_ganancia():
@@ -487,32 +437,33 @@ def submenu_ganancia():
     print("CONFIGURACIÓN DE GANANCIA OBJETIVO")
     print("="*60)
     
-    actual = obtener_ganancia_objetivo()
-    print(f"\nGanancia actual: {actual}%")
+    ganancia_actual = obtener_ganancia_objetivo()
+    print(f"\nGanancia objetivo actual: {ganancia_actual}%")
+    print("(Este es el % de ganancia neta que buscas en cada operación)")
     
     try:
-        nueva = float(input("Nueva ganancia objetivo (%): "))
+        nueva = float(input("\nNueva ganancia objetivo (%): "))
         modificar_ganancia_objetivo(nueva)
     except ValueError:
         print("❌ Valor inválido")
     
-    input("\nPresiona Enter para continuar...")
+    input("\nPresiona Enter...")
 
 
-def submenu_apis_plataformas():
-    """Submenú para gestionar APIs de plataformas"""
+def submenu_apis():
+    """Submenú para gestionar APIs"""
     
     while True:
-        apis = listar_apis_configuradas()
-        
         print("\n" + "="*60)
-        print("GESTIÓN DE APIs DE PLATAFORMAS")
+        print("GESTIÓN DE APIs")
         print("="*60)
         
+        apis = listar_apis_configuradas()
+        
         if apis:
-            print("\nAPIs Configuradas:")
+            print("\nAPIs configuradas:")
             for api in apis:
-                estado = "🟢" if api['activa'] else "🔴"
+                estado = "✅" if api['activa'] else "❌"
                 print(f"{estado} [{api['id']}] {api['nombre']} - {api['plataforma']} ({api['tipo']})")
         else:
             print("\n⚠️  No hay APIs configuradas")
@@ -655,13 +606,6 @@ def mostrar_todas_configuraciones():
                 print(f"     Tipo: {api['tipo']}")
         else:
             print("   No hay APIs configuradas")
-        
-        # Obtener fecha de última actualización de forma segura
-        try:
-            if config and 'actualizado' in dict(config).keys():
-                print(f"\n🕐 Última actualización: {config['actualizado']}")
-        except:
-            pass
         
         print("="*60)
         

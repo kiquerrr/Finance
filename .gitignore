@@ -1,13 +1,153 @@
-# Ignorar archivos de Python
-__pycache__/
-*.pyc
-
-# Ignorar Entorno Virtual
-venv/
-
-# Ignorar Base de Datos, archivos de estado y backups
+# Base de datos
 *.db
-data/*.db
-data/*.txt
-data/*.csv
-data/backups/
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Backups
+backups/
+*.backup
+
+# Logs
+logs/
+*.log
+
+# Reportes generados
+reportes/
+*.csv
+*.txt
+
+# Gráficos generados
+graficos/
+*.png
+*.jpg
+*.jpeg
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Configuración personal (si la agregas)
+config_personal.ini
+.env
+
+# Archivos temporales
+*.tmp
+temp/
+# Base de datos
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Backups
+backups/
+*.backup
+*_backup.db
+*_old.db
+
+# Logs
+logs/
+*.log
+
+# Reportes generados
+reportes/
+*.csv
+*.txt
+
+# Gráficos generados
+graficos/
+*.png
+*.jpg
+*.jpeg
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+arbitraje_env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Config personal
+.env
+config_local.py
+
+# Archivos temporales
+*.tmp
+temp/
+*.old
+*_backup.py

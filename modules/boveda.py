@@ -1,20 +1,16 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-MÓDULO DE BÓVEDA - Gestión de Capital y Compras
+MÓDULO DE BÓVEDA - Gestión de Capital y Compras (CORREGIDO)
 =============================================================================
 Maneja el fondeo, transferencias y consultas de la bóveda
+✅ Ahora usa db_manager para conexiones seguras
 """
 
-import sqlite3
 from datetime import datetime
-from logger import log
-from calculos import calc
-
-# Conexión a la base de datos
-conn = sqlite3.connect('arbitraje.db')
-conn.row_factory = sqlite3.Row
-cursor = conn.cursor()
+from core.logger import log
+from core.calculos import calc
+from core.db_manager import db
 
 
 # ===================================================================
@@ -28,82 +24,80 @@ def consultar_boveda():
     print("ESTADO ACTUAL DE LA BÓVEDA")
     print("="*60)
     
-    # Obtener todas las criptos con saldo
-    cursor.execute("""
-        SELECT 
-            c.nombre,
-            c.simbolo,
-            bc.cantidad,
-            bc.precio_promedio,
-            (bc.cantidad * bc.precio_promedio) as valor_total
-        FROM boveda_ciclo bc
-        JOIN criptomonedas c ON bc.cripto_id = c.id
-        WHERE bc.cantidad > 0
-        ORDER BY valor_total DESC
-    """)
-    
-    criptos = cursor.fetchall()
-    
-    if not criptos:
-        print("\n⚠️  La bóveda está vacía")
-        print("    Fondea la bóveda antes de operar")
-        return
-    
-    print("\nCAPITAL TOTAL (Todas las criptos):")
-    
-    total_capital = 0
-    
-    for cripto in criptos:
-        print(f"\n    {cripto['nombre']} ({cripto['simbolo']}):")
-        print(f"    Cantidad: {cripto['cantidad']:.8f}")
-        print(f"    Valor: ${cripto['valor_total']:.2f}")
-        print(f"    Precio promedio: ${cripto['precio_promedio']:.4f}")
-        total_capital += cripto['valor_total']
-    
-    print(f"\n    TOTAL EN FIAT: ${total_capital:.2f}")
-    
-    # Si hay ciclo activo, mostrar capital en ese ciclo
-    from ciclos import obtener_ciclo_activo
-    ciclo = obtener_ciclo_activo()
-    
-    if ciclo:
-        print(f"\nCAPITAL EN CICLO ACTIVO (#{ciclo['id']}):")
-        
+    with db.get_cursor(commit=False) as cursor:
+        # Obtener todas las criptos con saldo
         cursor.execute("""
             SELECT 
                 c.nombre,
                 c.simbolo,
                 bc.cantidad,
-                (bc.cantidad * bc.precio_promedio) as valor
+                bc.precio_promedio,
+                (bc.cantidad * bc.precio_promedio) as valor_total
             FROM boveda_ciclo bc
             JOIN criptomonedas c ON bc.cripto_id = c.id
-            WHERE bc.ciclo_id = ? AND bc.cantidad > 0
-        """, (ciclo['id'],))
+            WHERE bc.cantidad > 0
+            ORDER BY valor_total DESC
+        """)
         
-        criptos_ciclo = cursor.fetchall()
-        total_ciclo = 0
+        criptos = cursor.fetchall()
         
-        for cripto in criptos_ciclo:
+        if not criptos:
+            print("\n⚠️  La bóveda está vacía")
+            print("    Fondea la bóveda antes de operar")
+            return
+        
+        print("\nCAPITAL TOTAL (Todas las criptos):")
+        
+        total_capital = 0
+        
+        for cripto in criptos:
             print(f"\n    {cripto['nombre']} ({cripto['simbolo']}):")
-            print(f"    Disponible: {cripto['cantidad']:.8f}")
-            print(f"    Valor: ${cripto['valor']:.2f}")
-            total_ciclo += cripto['valor']
+            print(f"    Cantidad: {cripto['cantidad']:.8f}")
+            print(f"    Valor: ${cripto['valor_total']:.2f}")
+            print(f"    Precio promedio: ${cripto['precio_promedio']:.4f}")
+            total_capital += cripto['valor_total']
         
-        print(f"\n    TOTAL EN CICLO: ${total_ciclo:.2f}")
+        print(f"\n    TOTAL EN FIAT: ${total_capital:.2f}")
+        
+        # Si hay ciclo activo, mostrar capital en ese ciclo
+        from ciclos import obtener_ciclo_activo
+        ciclo = obtener_ciclo_activo()
+        
+        if ciclo:
+            print(f"\nCAPITAL EN CICLO ACTIVO (#{ciclo['id']}):")
+            
+            cursor.execute("""
+                SELECT 
+                    c.nombre,
+                    c.simbolo,
+                    bc.cantidad,
+                    (bc.cantidad * bc.precio_promedio) as valor
+                FROM boveda_ciclo bc
+                JOIN criptomonedas c ON bc.cripto_id = c.id
+                WHERE bc.ciclo_id = ? AND bc.cantidad > 0
+            """, (ciclo['id'],))
+            
+            criptos_ciclo = cursor.fetchall()
+            total_ciclo = 0
+            
+            for cripto in criptos_ciclo:
+                print(f"\n    {cripto['nombre']} ({cripto['simbolo']}):")
+                print(f"    Disponible: {cripto['cantidad']:.8f}")
+                print(f"    Valor: ${cripto['valor']:.2f}")
+                total_ciclo += cripto['valor']
+            
+            print(f"\n    TOTAL EN CICLO: ${total_ciclo:.2f}")
     
     print("="*60)
 
 
 def listar_criptomonedas():
     """Lista todas las criptomonedas disponibles"""
-    
-    cursor.execute("""
+    return db.execute_query("""
         SELECT id, nombre, simbolo, tipo, descripcion
         FROM criptomonedas
         ORDER BY tipo, nombre
     """)
-    
-    return cursor.fetchall()
 
 
 # ===================================================================
@@ -117,7 +111,7 @@ def fondear_boveda():
     print("FONDEAR BÓVEDA (REGISTRAR COMPRA)")
     print("="*60)
     
-    # CORRECCIÓN: Obtener o FORZAR creación de ciclo activo
+    # Obtener o crear ciclo activo
     from ciclos import obtener_ciclo_activo, crear_ciclo
     ciclo = obtener_ciclo_activo()
     
@@ -140,14 +134,10 @@ def fondear_boveda():
                 return
         else:
             print("\n❌ No puedes fondear sin un ciclo activo")
-            print("    Crea un ciclo primero desde [1] Operador")
             return
     else:
         ciclo_id = ciclo['id']
         print(f"\nRegistrando compra en el ciclo activo #{ciclo_id}")
-    
-    # IMPORTANTE: Ahora ciclo_id NUNCA será 0 o None
-    # El resto del código sigue igual...
     
     # Listar criptomonedas
     print("\n" + "="*60)
@@ -178,7 +168,7 @@ def fondear_boveda():
         print(f"\nSeleccionaste: {cripto_seleccionada['nombre']} ({cripto_seleccionada['simbolo']})")
         
     except ValueError:
-        print("\nIngresa un número válido.")
+        print("\n❌ Ingresa un número válido.")
         return
     
     # Ingresar monto
@@ -230,7 +220,7 @@ def fondear_boveda():
     
     # Registrar compra
     registrar_compra(
-        ciclo_id if ciclo_id else 0,
+        ciclo_id,
         cripto_seleccionada['id'],
         cantidad,
         monto_usd,
@@ -242,80 +232,95 @@ def registrar_compra(ciclo_id, cripto_id, cantidad, monto_usd, tasa):
     """Registra una compra en la base de datos"""
     
     try:
-        # Obtener info de la cripto
-        cursor.execute("SELECT nombre, simbolo FROM criptomonedas WHERE id = ?", (cripto_id,))
-        cripto = cursor.fetchone()
-        
-        # Registrar en tabla de compras
-        cursor.execute("""
-            INSERT INTO compras (ciclo_id, cripto_id, cantidad, monto_usd, tasa, fecha)
-            VALUES (?, ?, ?, ?, ?, datetime('now'))
-        """, (ciclo_id, cripto_id, cantidad, monto_usd, tasa))
-        
-        # Actualizar bóveda del ciclo
-        cursor.execute("""
-            SELECT cantidad, precio_promedio
-            FROM boveda_ciclo
-            WHERE ciclo_id = ? AND cripto_id = ?
-        """, (ciclo_id, cripto_id))
-        
-        boveda_actual = cursor.fetchone()
-        
-        if boveda_actual:
-            # Ya existe, calcular nuevo promedio ponderado
-            cantidad_anterior = boveda_actual['cantidad']
-            precio_anterior = boveda_actual['precio_promedio']
-            
-            # Costo total anterior
-            costo_anterior = cantidad_anterior * precio_anterior
-            
-            # Costo de esta compra
-            costo_nueva = cantidad * tasa
-            
-            # Nueva cantidad y precio promedio
-            cantidad_nueva = cantidad_anterior + cantidad
-            precio_promedio_nuevo = (costo_anterior + costo_nueva) / cantidad_nueva
-            
+        with db.get_cursor(commit=False) as cursor:
+            # Obtener info de la cripto
             cursor.execute("""
-                UPDATE boveda_ciclo
-                SET cantidad = ?,
-                    precio_promedio = ?
+                SELECT nombre, simbolo FROM criptomonedas WHERE id = ?
+            """, (cripto_id,))
+            
+            cripto = cursor.fetchone()
+            
+            if not cripto:
+                print("❌ Criptomoneda no encontrada")
+                return False
+            
+            # 1. Registrar compra en tabla de compras
+            cursor.execute("""
+                INSERT INTO compras (ciclo_id, cripto_id, cantidad, monto_usd, tasa, fecha)
+                VALUES (?, ?, ?, ?, ?, datetime('now'))
+            """, (ciclo_id, cripto_id, cantidad, monto_usd, tasa))
+            
+            # 2. Verificar si ya existe en bóveda
+            cursor.execute("""
+                SELECT cantidad, precio_promedio
+                FROM boveda_ciclo
                 WHERE ciclo_id = ? AND cripto_id = ?
-            """, (cantidad_nueva, precio_promedio_nuevo, ciclo_id, cripto_id))
+            """, (ciclo_id, cripto_id))
             
-        else:
-            # No existe, crear nuevo registro
-            cantidad_nueva = cantidad # Definir para el log
-            cursor.execute("""
-                INSERT INTO boveda_ciclo (ciclo_id, cripto_id, cantidad, precio_promedio)
-                VALUES (?, ?, ?, ?)
-            """, (ciclo_id, cripto_id, cantidad, tasa))
-        
-        conn.commit()
-        
-        # Registrar en log
-        log.boveda_compra(
-            cripto=cripto['nombre'],
-            cantidad=cantidad,
-            monto_usd=monto_usd,
-            tasa=tasa,
-            ciclo_id=ciclo_id
-        )
-        
-        print(f"\n✅ Compra registrada con éxito!")
-        print(f"Ahora tienes {cantidad_nueva:.8f} {cripto['simbolo']} en tu bóveda.")
-        
-        return True
-        
+            boveda_actual = cursor.fetchone()
+            
+            if boveda_actual:
+                # Ya existe, calcular nuevo promedio ponderado
+                cantidad_anterior = boveda_actual['cantidad']
+                precio_anterior = boveda_actual['precio_promedio']
+                
+                # Costo total anterior
+                costo_anterior = cantidad_anterior * precio_anterior
+                # Costo de nueva compra
+                costo_nuevo = cantidad * tasa
+                
+                # Nueva cantidad total
+                cantidad_total = cantidad_anterior + cantidad
+                # Nuevo precio promedio ponderado
+                precio_promedio_nuevo = (costo_anterior + costo_nuevo) / cantidad_total
+                
+                cursor.execute("""
+                    UPDATE boveda_ciclo
+                    SET cantidad = ?,
+                        precio_promedio = ?
+                    WHERE ciclo_id = ? AND cripto_id = ?
+                """, (cantidad_total, precio_promedio_nuevo, ciclo_id, cripto_id))
+                
+                print(f"\n✅ Compra agregada a bóveda existente")
+                print(f"   Cantidad anterior: {cantidad_anterior:.8f} {cripto['simbolo']}")
+                print(f"   Precio anterior: ${precio_anterior:.4f}")
+                print(f"   Nueva cantidad total: {cantidad_total:.8f} {cripto['simbolo']}")
+                print(f"   Nuevo precio promedio: ${precio_promedio_nuevo:.4f}")
+                
+            else:
+                # No existe, crear nuevo registro
+                cursor.execute("""
+                    INSERT INTO boveda_ciclo (ciclo_id, cripto_id, cantidad, precio_promedio)
+                    VALUES (?, ?, ?, ?)
+                """, (ciclo_id, cripto_id, cantidad, tasa))
+                
+                print(f"\n✅ Nueva cripto agregada a la bóveda")
+                print(f"   Cantidad: {cantidad:.8f} {cripto['simbolo']}")
+                print(f"   Precio promedio: ${tasa:.4f}")
+            
+            # Commit de la transacción
+            cursor.connection.commit()
+            
+            # Registrar en log
+            log.boveda_compra(
+                cripto=cripto['nombre'],
+                cantidad=cantidad,
+                monto_usd=monto_usd,
+                tasa=tasa,
+                ciclo_id=ciclo_id
+            )
+            
+            print(f"\n✅ Compra de {cantidad:.8f} {cripto['simbolo']} registrada exitosamente")
+            return True
+            
     except Exception as e:
         log.error("Error al registrar compra", str(e))
         print(f"\n❌ Error al registrar compra: {e}")
-        conn.rollback()
         return False
 
 
 # ===================================================================
-# HISTORIAL DE TRANSACCIONES
+# HISTORIAL
 # ===================================================================
 
 def ver_historial():
@@ -325,7 +330,7 @@ def ver_historial():
     print("HISTORIAL DE TRANSACCIONES")
     print("="*60)
     
-    cursor.execute("""
+    compras = db.execute_query("""
         SELECT 
             co.fecha,
             co.ciclo_id,
@@ -339,8 +344,6 @@ def ver_historial():
         ORDER BY co.fecha DESC
         LIMIT 50
     """)
-    
-    compras = cursor.fetchall()
     
     if not compras:
         print("\n⚠️  No hay transacciones registradas")
@@ -382,21 +385,22 @@ def transferir_capital():
     print(f"\nCiclo activo: #{ciclo['id']}")
     
     # Mostrar capital disponible en otros ciclos
-    cursor.execute("""
-        SELECT 
-            bc.ciclo_id,
-            c.nombre,
-            c.simbolo,
-            c.id as cripto_id,
-            bc.cantidad,
-            bc.precio_promedio
-        FROM boveda_ciclo bc
-        JOIN criptomonedas c ON bc.cripto_id = c.id
-        WHERE bc.ciclo_id != ? AND bc.cantidad > 0
-        ORDER BY bc.ciclo_id, c.nombre
-    """, (ciclo['id'],))
-    
-    capital_otros = cursor.fetchall()
+    with db.get_cursor(commit=False) as cursor:
+        cursor.execute("""
+            SELECT 
+                bc.ciclo_id,
+                c.nombre,
+                c.simbolo,
+                c.id as cripto_id,
+                bc.cantidad,
+                bc.precio_promedio
+            FROM boveda_ciclo bc
+            JOIN criptomonedas c ON bc.cripto_id = c.id
+            WHERE bc.ciclo_id != ? AND bc.cantidad > 0
+            ORDER BY bc.ciclo_id, c.nombre
+        """, (ciclo['id'],))
+        
+        capital_otros = cursor.fetchall()
     
     if not capital_otros:
         print("\n⚠️  No hay capital en otros ciclos para transferir")
@@ -450,55 +454,58 @@ def transferir_capital():
             print("❌ Transferencia cancelada")
             return
         
-        # Realizar transferencia
-        # 1. Restar del ciclo origen
-        cursor.execute("""
-            UPDATE boveda_ciclo
-            SET cantidad = cantidad - ?
-            WHERE ciclo_id = ? AND cripto_id = ?
-        """, (cantidad, cripto_seleccionada['ciclo_id'], cripto_seleccionada['cripto_id']))
-        
-        # 2. Verificar si existe en ciclo destino
-        cursor.execute("""
-            SELECT cantidad, precio_promedio
-            FROM boveda_ciclo
-            WHERE ciclo_id = ? AND cripto_id = ?
-        """, (ciclo['id'], cripto_seleccionada['cripto_id']))
-        
-        destino_actual = cursor.fetchone()
-        
-        if destino_actual:
-            # Ya existe, calcular nuevo promedio
-            cant_anterior = destino_actual['cantidad']
-            precio_anterior = destino_actual['precio_promedio']
+        # Realizar transferencia usando transacción
+        with db.transaction() as conn:
+            cursor = conn.cursor()
             
-            costo_anterior = cant_anterior * precio_anterior
-            costo_nuevo = cantidad * cripto_seleccionada['precio_promedio']
-            
-            cantidad_total = cant_anterior + cantidad
-            precio_promedio_nuevo = (costo_anterior + costo_nuevo) / cantidad_total 
-            
+            # 1. Restar del ciclo origen
             cursor.execute("""
                 UPDATE boveda_ciclo
-                SET cantidad = ?,
-                    precio_promedio = ?
+                SET cantidad = cantidad - ?
                 WHERE ciclo_id = ? AND cripto_id = ?
-            """, (cantidad_total, precio_promedio_nuevo, ciclo['id'], cripto_seleccionada['cripto_id']))
+            """, (cantidad, cripto_seleccionada['ciclo_id'], cripto_seleccionada['cripto_id']))
             
-        else:
-            # No existe, insertar nuevo registro
+            # 2. Verificar si existe en ciclo destino
             cursor.execute("""
-                INSERT INTO boveda_ciclo (ciclo_id, cripto_id, cantidad, precio_promedio)
-                VALUES (?, ?, ?, ?)
-            """, (ciclo['id'], cripto_seleccionada['cripto_id'], cantidad, cripto_seleccionada['precio_promedio']))
+                SELECT cantidad, precio_promedio
+                FROM boveda_ciclo
+                WHERE ciclo_id = ? AND cripto_id = ?
+            """, (ciclo['id'], cripto_seleccionada['cripto_id']))
             
-        conn.commit()
+            destino_actual = cursor.fetchone()
+            
+            if destino_actual:
+                # Ya existe, calcular nuevo promedio
+                cant_anterior = destino_actual['cantidad']
+                precio_anterior = destino_actual['precio_promedio']
+                
+                costo_anterior = cant_anterior * precio_anterior
+                costo_nuevo = cantidad * cripto_seleccionada['precio_promedio']
+                
+                cantidad_total = cant_anterior + cantidad
+                precio_promedio_nuevo = (costo_anterior + costo_nuevo) / cantidad_total 
+                
+                cursor.execute("""
+                    UPDATE boveda_ciclo
+                    SET cantidad = ?,
+                        precio_promedio = ?
+                    WHERE ciclo_id = ? AND cripto_id = ?
+                """, (cantidad_total, precio_promedio_nuevo, ciclo['id'], cripto_seleccionada['cripto_id']))
+                
+            else:
+                # No existe, insertar nuevo registro
+                cursor.execute("""
+                    INSERT INTO boveda_ciclo (ciclo_id, cripto_id, cantidad, precio_promedio)
+                    VALUES (?, ?, ?, ?)
+                """, (ciclo['id'], cripto_seleccionada['cripto_id'], cantidad, cripto_seleccionada['precio_promedio']))
+            
+            # Commit automático al salir del context manager
         
-        # CORRECCIÓN DE BUG: Se añade el argumento 'valor_usd' que faltaba
+        # Registrar en log
         log.boveda_transferencia(
             cripto=cripto_seleccionada['nombre'],
             cantidad=cantidad,
-            valor_usd=valor_transfer, # ARGUMENTO AÑADIDO
+            valor_usd=valor_transfer,
             origen=cripto_seleccionada['ciclo_id'],
             destino=ciclo['id']
         )
@@ -511,7 +518,6 @@ def transferir_capital():
     except Exception as e:
         log.error("Error al transferir capital", str(e))
         print(f"❌ Ocurrió un error inesperado: {e}")
-        conn.rollback()
 
 
 # ===================================================================

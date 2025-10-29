@@ -1,331 +1,518 @@
+# -*- coding: utf-8 -*-
 """
 =============================================================================
-INICIALIZACIÓN DE BASE DE DATOS
+INICIALIZACIÓN DE BASE DE DATOS v3.0
 =============================================================================
-Crea la base de datos SOLO LA PRIMERA VEZ
-Después, toda la gestión se hace desde el módulo de Mantenimiento
+Crea y configura la base de datos desde cero
 """
 
 import sqlite3
 import os
 from datetime import datetime
+from pathlib import Path
 
 
-def inicializar_base_datos(db_path='arbitraje.db'):
-    """
-    Crea todas las tablas necesarias para el sistema
-    Solo se ejecuta la PRIMERA VEZ que se instala el sistema
-    """
+# ===================================================================
+# CONFIGURACIÓN
+# ===================================================================
+
+DB_FILE = 'data/arbitraje.db'
+BACKUP_DIR = Path('backups')
+DATA_DIR = Path('data')
+
+# Crear directorios si no existen
+BACKUP_DIR.mkdir(exist_ok=True)
+DATA_DIR.mkdir(exist_ok=True)
+
+
+# ===================================================================
+# FUNCIONES DE BACKUP
+# ===================================================================
+
+def hacer_backup_si_existe():
+    """Hace backup de la BD si ya existe"""
     
-    print("\n🔧 Inicializando base de datos del sistema...")
-    print("   (Esto solo ocurre en la primera instalación)\n")
+    if os.path.exists(DB_FILE):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_file = BACKUP_DIR / f'arbitraje_backup_antes_reinicio_{timestamp}.db'
+        
+        print(f"\n⚠️  La base de datos ya existe")
+        print(f"📁 Creando backup: {backup_file.name}")
+        
+        import shutil
+        shutil.copy2(DB_FILE, backup_file)
+        
+        print("✅ Backup creado exitosamente")
+        return True
     
-    conn = sqlite3.connect(db_path)
+    return False
+
+
+# ===================================================================
+# CREACIÓN DE TABLAS
+# ===================================================================
+
+def crear_tablas(conn):
+    """Crea todas las tablas del sistema"""
+    
     cursor = conn.cursor()
     
+    print("\n📋 Creando tablas...")
+    
+    # Tabla de configuración
+    print("   • config")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS config (
+            id INTEGER PRIMARY KEY,
+            comision_default REAL DEFAULT 0.35,
+            ganancia_neta_default REAL DEFAULT 2.0,
+            modo_comision TEXT DEFAULT 'manual',
+            api_comision_activa INTEGER DEFAULT 0,
+            limite_ventas_min INTEGER DEFAULT 5,
+            limite_ventas_max INTEGER DEFAULT 8,
+            actualizado TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Tabla de criptomonedas
+    print("   • criptomonedas")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS criptomonedas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            simbolo TEXT NOT NULL UNIQUE,
+            tipo TEXT NOT NULL,
+            descripcion TEXT
+        )
+    """)
+    
+    # Tabla de ciclos
+    print("   • ciclos")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ciclos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha_inicio DATE NOT NULL,
+            fecha_fin_estimada DATE NOT NULL,
+            fecha_cierre TIMESTAMP,
+            dias_planificados INTEGER NOT NULL,
+            dias_operados INTEGER DEFAULT 0,
+            inversion_inicial REAL DEFAULT 0,
+            capital_final REAL,
+            ganancia_total REAL DEFAULT 0,
+            roi_total REAL,
+            estado TEXT DEFAULT 'activo',
+            CHECK(estado IN ('activo', 'cerrado'))
+        )
+    """)
+    
+    # Tabla de días
+    print("   • dias")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS dias (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ciclo_id INTEGER NOT NULL,
+            numero_dia INTEGER NOT NULL,
+            fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            fecha_cierre TIMESTAMP,
+            capital_inicial REAL NOT NULL,
+            capital_final REAL,
+            efectivo_recibido REAL DEFAULT 0,
+            cripto_operada_id INTEGER,
+            precio_publicado REAL,
+            comisiones_pagadas REAL DEFAULT 0,
+            ganancia_bruta REAL DEFAULT 0,
+            ganancia_neta REAL DEFAULT 0,
+            estado TEXT DEFAULT 'abierto',
+            FOREIGN KEY (ciclo_id) REFERENCES ciclos(id),
+            FOREIGN KEY (cripto_operada_id) REFERENCES criptomonedas(id),
+            CHECK(estado IN ('abierto', 'cerrado'))
+        )
+    """)
+    
+    # Tabla de ventas
+    print("   • ventas")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ventas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dia_id INTEGER NOT NULL,
+            cripto_id INTEGER NOT NULL,
+            cantidad REAL NOT NULL,
+            precio_unitario REAL NOT NULL,
+            costo_total REAL NOT NULL,
+            monto_venta REAL NOT NULL,
+            comision REAL NOT NULL,
+            efectivo_recibido REAL NOT NULL,
+            ganancia_bruta REAL NOT NULL,
+            ganancia_neta REAL NOT NULL,
+            fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (dia_id) REFERENCES dias(id),
+            FOREIGN KEY (cripto_id) REFERENCES criptomonedas(id)
+        )
+    """)
+    
+    # Tabla de bóveda por ciclo
+    print("   • boveda_ciclo")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS boveda_ciclo (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ciclo_id INTEGER NOT NULL,
+            cripto_id INTEGER NOT NULL,
+            cantidad REAL NOT NULL DEFAULT 0,
+            precio_promedio REAL NOT NULL DEFAULT 0,
+            FOREIGN KEY (ciclo_id) REFERENCES ciclos(id),
+            FOREIGN KEY (cripto_id) REFERENCES criptomonedas(id),
+            UNIQUE(ciclo_id, cripto_id)
+        )
+    """)
+    
+    # Tabla de compras
+    print("   • compras")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS compras (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ciclo_id INTEGER NOT NULL,
+            cripto_id INTEGER NOT NULL,
+            cantidad REAL NOT NULL,
+            monto_usd REAL NOT NULL,
+            tasa REAL NOT NULL,
+            fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (ciclo_id) REFERENCES ciclos(id),
+            FOREIGN KEY (cripto_id) REFERENCES criptomonedas(id)
+        )
+    """)
+    
+    # Tabla de efectivo en banco
+    print("   • efectivo_banco")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS efectivo_banco (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ciclo_id INTEGER NOT NULL,
+            dia_id INTEGER,
+            monto REAL NOT NULL,
+            concepto TEXT,
+            fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (ciclo_id) REFERENCES ciclos(id),
+            FOREIGN KEY (dia_id) REFERENCES dias(id)
+        )
+    """)
+    
+    # Tabla de APIs configuradas
+    print("   • apis_config")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS apis_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            plataforma TEXT NOT NULL,
+            api_key TEXT,
+            api_secret TEXT,
+            activa INTEGER DEFAULT 1,
+            tipo TEXT,
+            fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ultima_actualizacion TIMESTAMP
+        )
+    """)
+    
+    # Tabla de comisiones por plataforma
+    print("   • comisiones_plataforma")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS comisiones_plataforma (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plataforma TEXT NOT NULL,
+            tipo_operacion TEXT NOT NULL,
+            comision REAL NOT NULL,
+            fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Tabla de notas
+    print("   • notas")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS notas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tipo TEXT NOT NULL,
+            referencia_id INTEGER,
+            titulo TEXT NOT NULL,
+            contenido TEXT NOT NULL,
+            prioridad TEXT DEFAULT 'normal',
+            etiquetas TEXT,
+            fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            fecha_modificacion TIMESTAMP,
+            autor TEXT DEFAULT 'Operador'
+        )
+    """)
+    
+    # Tabla de alertas
+    print("   • alertas")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS alertas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tipo TEXT NOT NULL,
+            nivel TEXT NOT NULL,
+            titulo TEXT NOT NULL,
+            mensaje TEXT NOT NULL,
+            referencia_tipo TEXT,
+            referencia_id INTEGER,
+            leida INTEGER DEFAULT 0,
+            fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            fecha_lectura TIMESTAMP
+        )
+    """)
+    
+    # Tabla de configuración de alertas
+    print("   • config_alertas")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS config_alertas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tipo_alerta TEXT NOT NULL UNIQUE,
+            activa INTEGER DEFAULT 1,
+            umbral REAL,
+            parametros TEXT
+        )
+    """)
+    
+    conn.commit()
+    print("✅ Tablas creadas exitosamente")
+
+
+def crear_indices(conn):
+    """Crea índices para mejorar rendimiento"""
+    
+    cursor = conn.cursor()
+    
+    print("\n📊 Creando índices...")
+    
+    indices = [
+        ("idx_dias_ciclo", "CREATE INDEX IF NOT EXISTS idx_dias_ciclo ON dias(ciclo_id)"),
+        ("idx_ventas_dia", "CREATE INDEX IF NOT EXISTS idx_ventas_dia ON ventas(dia_id)"),
+        ("idx_boveda_ciclo", "CREATE INDEX IF NOT EXISTS idx_boveda_ciclo ON boveda_ciclo(ciclo_id)"),
+        ("idx_compras_ciclo", "CREATE INDEX IF NOT EXISTS idx_compras_ciclo ON compras(ciclo_id)"),
+        ("idx_notas_tipo", "CREATE INDEX IF NOT EXISTS idx_notas_tipo ON notas(tipo)"),
+        ("idx_notas_referencia", "CREATE INDEX IF NOT EXISTS idx_notas_referencia ON notas(tipo, referencia_id)"),
+        ("idx_alertas_leida", "CREATE INDEX IF NOT EXISTS idx_alertas_leida ON alertas(leida)"),
+    ]
+    
+    for nombre, query in indices:
+        print(f"   • {nombre}")
+        cursor.execute(query)
+    
+    conn.commit()
+    print("✅ Índices creados exitosamente")
+
+
+def insertar_datos_iniciales(conn):
+    """Inserta datos iniciales del sistema"""
+    
+    cursor = conn.cursor()
+    
+    print("\n💾 Insertando datos iniciales...")
+    
+    # Configuración por defecto
+    print("   • Configuración por defecto")
+    cursor.execute("""
+        INSERT INTO config (id, comision_default, ganancia_neta_default)
+        VALUES (1, 0.35, 2.0)
+    """)
+    
+    # Criptomonedas por defecto
+    print("   • Criptomonedas")
+    criptos = [
+        ('Tether', 'USDT', 'stablecoin', 'Stablecoin vinculada al dólar estadounidense'),
+        ('USD Coin', 'USDC', 'stablecoin', 'Stablecoin respaldada por dólares en reserva'),
+        ('Binance USD', 'BUSD', 'stablecoin', 'Stablecoin emitida por Binance'),
+        ('Bitcoin', 'BTC', 'criptomoneda', 'La primera y más conocida criptomoneda'),
+        ('Ethereum', 'ETH', 'criptomoneda', 'Plataforma blockchain con contratos inteligentes'),
+        ('Binance Coin', 'BNB', 'criptomoneda', 'Token nativo de Binance'),
+        ('Dai', 'DAI', 'stablecoin', 'Stablecoin descentralizada'),
+    ]
+    
+    cursor.executemany("""
+        INSERT INTO criptomonedas (nombre, simbolo, tipo, descripcion)
+        VALUES (?, ?, ?, ?)
+    """, criptos)
+    
+    # Configuración de alertas por defecto
+    print("   • Configuración de alertas")
+    alertas_config = [
+        ('dia_abierto_largo', 1, 24),
+        ('limite_ventas', 1, None),
+        ('capital_bajo', 1, 100),
+        ('ganancia_negativa', 1, None),
+        ('ciclo_por_terminar', 1, 3),
+        ('sin_operar', 1, 3),
+        ('objetivo_alcanzado', 1, None),
+        ('rendimiento_bajo', 1, 1.0),
+    ]
+    
+    cursor.executemany("""
+        INSERT INTO config_alertas (tipo_alerta, activa, umbral)
+        VALUES (?, ?, ?)
+    """, alertas_config)
+    
+    conn.commit()
+    print("✅ Datos iniciales insertados")
+
+
+def verificar_integridad(conn):
+    """Verifica la integridad de la base de datos"""
+    
+    cursor = conn.cursor()
+    
+    print("\n🔍 Verificando integridad...")
+    
+    cursor.execute("PRAGMA integrity_check")
+    resultado = cursor.fetchone()[0]
+    
+    if resultado == "ok":
+        print("✅ Integridad verificada: OK")
+        return True
+    else:
+        print(f"❌ Problemas de integridad: {resultado}")
+        return False
+
+
+def mostrar_resumen(conn):
+    """Muestra resumen de la base de datos creada"""
+    
+    cursor = conn.cursor()
+    
+    print("\n" + "="*70)
+    print("RESUMEN DE LA BASE DE DATOS")
+    print("="*70)
+    
+    # Contar tablas
+    cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+    num_tablas = cursor.fetchone()[0]
+    print(f"\n📋 Tablas creadas: {num_tablas}")
+    
+    # Listar tablas
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+    tablas = cursor.fetchall()
+    
+    for tabla in tablas:
+        cursor.execute(f"SELECT COUNT(*) FROM {tabla[0]}")
+        count = cursor.fetchone()[0]
+        print(f"   • {tabla[0]}: {count} registro(s)")
+    
+    # Contar índices
+    cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND sql IS NOT NULL")
+    num_indices = cursor.fetchone()[0]
+    print(f"\n📊 Índices creados: {num_indices}")
+    
+    # Tamaño de la BD
+    tamaño = os.path.getsize(DB_FILE) / 1024  # KB
+    print(f"\n💾 Tamaño de la BD: {tamaño:.2f} KB")
+    print(f"📁 Ubicación: {Path(DB_FILE).absolute()}")
+    
+    print("\n" + "="*70)
+
+
+# ===================================================================
+# FUNCIÓN PRINCIPAL
+# ===================================================================
+
+def inicializar_base_datos():
+    """Inicializa la base de datos completa"""
+    
+    print("\n" + "="*70)
+    print("╔═══════════════════════════════════════════════════════════════════╗")
+    print("║       INICIALIZACIÓN DE BASE DE DATOS - VERSIÓN 3.0              ║")
+    print("╚═══════════════════════════════════════════════════════════════════╝")
+    print("="*70)
+    
+    # Advertencia
+    if os.path.exists(DB_FILE):
+        print("\n⚠️  ADVERTENCIA: La base de datos ya existe")
+        print("   Esta operación eliminará todos los datos actuales")
+        
+        confirmar = input("\n¿Deseas continuar? (escribe 'CONFIRMAR'): ").strip()
+        
+        if confirmar != "CONFIRMAR":
+            print("\n❌ Operación cancelada")
+            return False
+        
+        # Hacer backup
+        hacer_backup_si_existe()
+        
+        # Eliminar BD actual
+        print("\n🗑️  Eliminando base de datos actual...")
+        os.remove(DB_FILE)
+        print("✅ Base de datos eliminada")
+    
     try:
-        # ===================================================================
-        # 1. TABLA DE CONFIGURACIÓN
-        # ===================================================================
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS config (
-                id INTEGER PRIMARY KEY,
-                comision_default REAL DEFAULT 0.35,
-                ganancia_neta_default REAL DEFAULT 2.0,
-                modo_comision TEXT DEFAULT 'manual',
-                api_comision_activa INTEGER DEFAULT 0,
-                limite_ventas_min INTEGER DEFAULT 3,
-                limite_ventas_max INTEGER DEFAULT 5,
-                actualizado TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        # Crear conexión
+        print(f"\n🔨 Creando nueva base de datos: {DB_FILE}")
+        conn = sqlite3.connect(DB_FILE)
         
-        # Insertar config por defecto
-        cursor.execute("SELECT COUNT(*) FROM config")
-        if cursor.fetchone()[0] == 0:
-            cursor.execute("""
-                INSERT INTO config (id, comision_default, ganancia_neta_default)
-                VALUES (1, 0.35, 2.0)
-            """)
-            print("   ✓ Configuración inicial")
+        # Habilitar claves foráneas
+        conn.execute("PRAGMA foreign_keys = ON")
         
-        # ===================================================================
-        # 2. TABLA DE CRIPTOMONEDAS
-        # ===================================================================
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS criptomonedas (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nombre TEXT NOT NULL,
-                simbolo TEXT NOT NULL UNIQUE,
-                tipo TEXT NOT NULL,
-                descripcion TEXT
-            )
-        """)
+        # Crear tablas
+        crear_tablas(conn)
         
-        # Insertar criptomonedas por defecto
-        criptos_default = [
-            ('Tether', 'USDT', 'stablecoin', 'Moneda estable vinculada al dolar'),
-            ('USD Coin', 'USDC', 'stablecoin', 'Moneda estable respaldada por dolares'),
-            ('Bitcoin', 'BTC', 'criptomoneda', 'La primera y mas conocida criptomoneda'),
-            ('Ethereum', 'ETH', 'criptomoneda', 'Plataforma de contratos inteligentes'),
-            ('Binance Coin', 'BNB', 'criptomoneda', 'Token nativo de Binance'),
-            ('Dai', 'DAI', 'stablecoin', 'Stablecoin descentralizada')
-        ]
+        # Crear índices
+        crear_indices(conn)
         
-        for nombre, simbolo, tipo, desc in criptos_default:
-            cursor.execute("""
-                INSERT OR IGNORE INTO criptomonedas (nombre, simbolo, tipo, descripcion)
-                VALUES (?, ?, ?, ?)
-            """, (nombre, simbolo, tipo, desc))
+        # Insertar datos iniciales
+        insertar_datos_iniciales(conn)
         
-        print("   ✓ Criptomonedas (6 disponibles)")
+        # Verificar integridad
+        if not verificar_integridad(conn):
+            print("\n❌ Error en la integridad de la base de datos")
+            conn.close()
+            return False
         
-        # ===================================================================
-        # 3. TABLA DE CICLOS
-        # ===================================================================
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ciclos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                fecha_inicio DATE NOT NULL,
-                fecha_fin_estimada DATE,
-                fecha_cierre TIMESTAMP,
-                dias_planificados INTEGER NOT NULL,
-                dias_operados INTEGER DEFAULT 0,
-                inversion_inicial REAL DEFAULT 0,
-                ganancia_total REAL DEFAULT 0,
-                capital_final REAL DEFAULT 0,
-                roi_total REAL DEFAULT 0,
-                estado TEXT DEFAULT 'activo',
-                notas TEXT
-            )
-        """)
-        print("   ✓ Tabla de ciclos")
+        # Mostrar resumen
+        mostrar_resumen(conn)
         
-        # ===================================================================
-        # 4. TABLA DE DÍAS
-        # ===================================================================
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS dias (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ciclo_id INTEGER NOT NULL,
-                numero_dia INTEGER NOT NULL,
-                fecha DATE DEFAULT (date('now')),
-                capital_inicial REAL NOT NULL,
-                capital_final REAL DEFAULT 0,
-                efectivo_recibido REAL DEFAULT 0,
-                comisiones_pagadas REAL DEFAULT 0,
-                ganancia_bruta REAL DEFAULT 0,
-                ganancia_neta REAL DEFAULT 0,
-                cripto_operada_id INTEGER,
-                precio_publicado REAL,
-                estado TEXT DEFAULT 'abierto',
-                fecha_cierre TIMESTAMP,
-                FOREIGN KEY (ciclo_id) REFERENCES ciclos(id),
-                FOREIGN KEY (cripto_operada_id) REFERENCES criptomonedas(id)
-            )
-        """)
-        print("   ✓ Tabla de días")
-        
-        # ===================================================================
-        # 5. TABLA DE BÓVEDA
-        # ===================================================================
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS boveda_ciclo (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ciclo_id INTEGER NOT NULL,
-                cripto_id INTEGER NOT NULL,
-                cantidad REAL NOT NULL DEFAULT 0,
-                precio_promedio REAL NOT NULL,
-                FOREIGN KEY (ciclo_id) REFERENCES ciclos(id),
-                FOREIGN KEY (cripto_id) REFERENCES criptomonedas(id),
-                UNIQUE(ciclo_id, cripto_id)
-            )
-        """)
-        print("   ✓ Tabla de bóveda")
-        
-        # ===================================================================
-        # 6. TABLA DE COMPRAS
-        # ===================================================================
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS compras (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ciclo_id INTEGER NOT NULL,
-                cripto_id INTEGER NOT NULL,
-                cantidad REAL NOT NULL,
-                monto_usd REAL NOT NULL,
-                tasa REAL NOT NULL,
-                fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (ciclo_id) REFERENCES ciclos(id),
-                FOREIGN KEY (cripto_id) REFERENCES criptomonedas(id)
-            )
-        """)
-        print("   ✓ Tabla de compras")
-        
-        # ===================================================================
-        # 7. TABLA DE VENTAS
-        # ===================================================================
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ventas (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                dia_id INTEGER NOT NULL,
-                cripto_id INTEGER NOT NULL,
-                cantidad REAL NOT NULL,
-                precio_unitario REAL NOT NULL,
-                costo_total REAL,
-                monto_venta REAL,
-                comision REAL,
-                efectivo_recibido REAL,
-                ganancia_bruta REAL,
-                ganancia_neta REAL,
-                fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (dia_id) REFERENCES dias(id),
-                FOREIGN KEY (cripto_id) REFERENCES criptomonedas(id)
-            )
-        """)
-        print("   ✓ Tabla de ventas")
-        
-        # ===================================================================
-        # 8. TABLA DE EFECTIVO EN BANCO
-        # ===================================================================
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS efectivo_banco (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ciclo_id INTEGER NOT NULL,
-                dia_id INTEGER,
-                monto REAL NOT NULL,
-                concepto TEXT,
-                fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (ciclo_id) REFERENCES ciclos(id),
-                FOREIGN KEY (dia_id) REFERENCES dias(id)
-            )
-        """)
-        print("   ✓ Tabla de efectivo (pool de reinversión)")
-        
-        # ===================================================================
-        # 9. TABLA DE APIS
-        # ===================================================================
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS apis_config (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nombre TEXT NOT NULL,
-                plataforma TEXT NOT NULL,
-                api_key TEXT,
-                api_secret TEXT,
-                activa INTEGER DEFAULT 1,
-                tipo TEXT DEFAULT 'trading',
-                fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                ultima_actualizacion TIMESTAMP
-            )
-        """)
-        print("   ✓ Tabla de configuración de APIs")
-        
-        # ===================================================================
-        # 10. ÍNDICES PARA OPTIMIZACIÓN
-        # ===================================================================
-        indices = [
-            "CREATE INDEX IF NOT EXISTS idx_dias_ciclo ON dias(ciclo_id)",
-            "CREATE INDEX IF NOT EXISTS idx_dias_estado ON dias(estado)",
-            "CREATE INDEX IF NOT EXISTS idx_ventas_dia ON ventas(dia_id)",
-            "CREATE INDEX IF NOT EXISTS idx_boveda_ciclo ON boveda_ciclo(ciclo_id, cripto_id)",
-            "CREATE INDEX IF NOT EXISTS idx_efectivo_ciclo ON efectivo_banco(ciclo_id)",
-            "CREATE INDEX IF NOT EXISTS idx_compras_ciclo ON compras(ciclo_id)",
-            "CREATE INDEX IF NOT EXISTS idx_ciclos_estado ON ciclos(estado)"
-        ]
-        
-        for indice in indices:
-            cursor.execute(indice)
-        
-        print("   ✓ Índices de optimización")
-        
-        # ===================================================================
-        # COMMIT
-        # ===================================================================
-        conn.commit()
-        
-        print(f"\n✅ Base de datos creada correctamente")
-        print(f"   Ubicación: {os.path.abspath(db_path)}")
-        print(f"   Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        return True
-        
-    except Exception as e:
-        print(f"\n❌ Error al inicializar: {e}")
-        conn.rollback()
-        return False
-        
-    finally:
+        # Cerrar conexión
         conn.close()
-
-
-def primera_instalacion():
-    """
-    Instalación inicial del sistema
-    Se ejecuta UNA SOLA VEZ
-    """
-    
-    print("\n" + "="*60)
-    print("INSTALACIÓN INICIAL DEL SISTEMA")
-    print("="*60)
-    print("\nBienvenido al Sistema de Gestión de Arbitraje P2P v2.0")
-    print("\nEsta instalación creará:")
-    print("  • Base de datos con todas las tablas")
-    print("  • Configuración por defecto")
-    print("  • 6 criptomonedas disponibles")
-    print("  • Directorios necesarios (logs, backups, exports)")
-    
-    input("\nPresiona Enter para continuar con la instalación...")
-    
-    # Crear directorios
-    print("\n📁 Creando estructura de directorios...")
-    for directorio in ['logs', 'backups', 'exports']:
-        if not os.path.exists(directorio):
-            os.makedirs(directorio)
-            print(f"   ✓ {directorio}/")
-        else:
-            print(f"   ✓ {directorio}/ (ya existe)")
-    
-    # Crear base de datos
-    if inicializar_base_datos():
-        print("\n" + "="*60)
-        print("✅ INSTALACIÓN COMPLETADA CON ÉXITO")
-        print("="*60)
-        print("\nEl sistema está listo para usar.")
-        print("\n💡 Recuerda:")
-        print("   • Usa [5] Mantenimiento → [1] para crear backups")
-        print("   • Usa [5] Mantenimiento → [5] para verificar integridad")
-        print("   • Usa [5] Mantenimiento → [9] para optimizar la BD")
-        print("\n" + "="*60)
+        
+        print("\n✅ ¡BASE DE DATOS INICIALIZADA CORRECTAMENTE!")
+        print("\n🚀 Para iniciar el sistema:")
+        print("   python main.py")
+        
         return True
-    else:
-        print("\n" + "="*60)
-        print("❌ INSTALACIÓN FALLIDA")
-        print("="*60)
+        
+    except sqlite3.Error as e:
+        print(f"\n❌ Error de SQLite: {e}")
+        return False
+    
+    except Exception as e:
+        print(f"\n❌ Error inesperado: {e}")
         return False
 
 
-def necesita_instalacion():
-    """
-    Verifica si el sistema necesita instalación inicial
-    Solo verifica si existe el archivo de BD
-    """
-    return not os.path.exists('arbitraje.db')
+# ===================================================================
+# MENÚ INTERACTIVO
+# ===================================================================
 
-
-def setup_inicial():
-    """
-    Función que se llama desde main.py
+def menu_inicializacion():
+    """Menú de opciones de inicialización"""
     
-    SOLO verifica si existe la BD.
-    Si no existe → Instala
-    Si existe → No hace nada (confía en Mantenimiento para verificaciones)
-    """
+    print("\n" + "="*70)
+    print("INICIALIZACIÓN DE BASE DE DATOS")
+    print("="*70)
+    print("\n[1] Inicializar base de datos (ELIMINA DATOS ACTUALES)")
+    print("[2] Solo verificar estructura")
+    print("[3] Salir")
+    print("="*70)
     
-    if necesita_instalacion():
-        return primera_instalacion()
+    opcion = input("\nSelecciona: ").strip()
+    
+    if opcion == "1":
+        inicializar_base_datos()
+    elif opcion == "2":
+        if os.path.exists(DB_FILE):
+            conn = sqlite3.connect(DB_FILE)
+            verificar_integridad(conn)
+            mostrar_resumen(conn)
+            conn.close()
+        else:
+            print("\n❌ No existe base de datos para verificar")
+    elif opcion == "3":
+        print("\n👋 ¡Hasta pronto!")
     else:
-        # BD existe, todo OK
-        # Las verificaciones las hace el módulo de Mantenimiento
-        return True
+        print("\n❌ Opción inválida")
 
 
 # ===================================================================
@@ -333,57 +520,11 @@ def setup_inicial():
 # ===================================================================
 
 if __name__ == "__main__":
-    print("="*60)
-    print("INSTALADOR DEL SISTEMA DE ARBITRAJE P2P")
-    print("="*60)
-    
-    if necesita_instalacion():
-        primera_instalacion()
-    else:
-        print("\n⚠️  La base de datos ya existe.")
-        print("\nOpciones:")
-        print("  [1] Ver información de la BD actual")
-        print("  [2] Reinstalar (BORRARÁ TODOS LOS DATOS)")
-        print("  [3] Salir")
-        
-        opcion = input("\nSelecciona (1-3): ").strip()
-        
-        if opcion == "1":
-            print("\n📊 Información de la base de datos:")
-            print(f"   Ubicación: {os.path.abspath('arbitraje.db')}")
-            tamaño = os.path.getsize('arbitraje.db') / 1024
-            print(f"   Tamaño: {tamaño:.2f} KB")
-            
-            # Contar registros
-            conn = sqlite3.connect('arbitraje.db')
-            cursor = conn.cursor()
-            
-            cursor.execute("SELECT COUNT(*) FROM ciclos")
-            ciclos = cursor.fetchone()[0]
-            print(f"   Ciclos: {ciclos}")
-            
-            cursor.execute("SELECT COUNT(*) FROM dias WHERE estado='cerrado'")
-            dias = cursor.fetchone()[0]
-            print(f"   Días operados: {dias}")
-            
-            cursor.execute("SELECT COUNT(*) FROM ventas")
-            ventas = cursor.fetchone()[0]
-            print(f"   Ventas: {ventas}")
-            
-            conn.close()
-            
-            print("\n✅ BD en buen estado")
-            print("   Usa [5] Mantenimiento en el programa para verificaciones")
-            
-        elif opcion == "2":
-            print("\n⚠️  ADVERTENCIA: Esto borrará TODOS los datos")
-            confirmar = input("Escribe 'BORRAR' para confirmar: ").strip()
-            
-            if confirmar == "BORRAR":
-                os.remove('arbitraje.db')
-                print("✓ BD anterior eliminada")
-                primera_instalacion()
-            else:
-                print("❌ Cancelado")
-        else:
-            print("Saliendo...")
+    try:
+        menu_inicializacion()
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Operación cancelada por el usuario")
+    except Exception as e:
+        print(f"\n❌ ERROR: {e}")
+    finally:
+        input("\nPresiona Enter para salir...")

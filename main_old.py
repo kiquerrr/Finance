@@ -5,7 +5,6 @@ SISTEMA DE ARBITRAJE P2P - MENÚ PRINCIPAL
 =============================================================================
 Sistema completo de gestión de arbitraje de criptomonedas
 Versión 3.0 - Actualizado con todas las funcionalidades
-Estructura modular preparada para fase web
 """
 
 import os
@@ -13,23 +12,25 @@ import sys
 from datetime import datetime
 
 # Imports de módulos core
-from core.logger import log
-from core.db_manager import db, verificar_conexion
-from core.queries import queries
+from logger import log
+from db_manager import db, verificar_conexion
 
 # Imports de módulos principales
-from modules.boveda import menu_boveda
-from modules.ciclos import menu_ciclos
-from modules.operador import menu_operador_avanzado, modulo_operador
-from modules.configuracion import menu_configuracion
-from modules.mantenimiento import menu_mantenimiento
+from boveda import menu_boveda
+from ciclos import menu_ciclos
+from operador import menu_operador_avanzado
+from configuracion import menu_configuracion
+from mantenimiento import menu_mantenimiento
 
 # Imports de nuevas funcionalidades
-from features.proyecciones import menu_proyecciones
-from features.reportes import menu_reportes
-from features.notas import menu_notas
-from features.alertas import menu_alertas, mostrar_banner_alertas, SistemaAlertas
-from features.graficos import menu_graficos, verificar_matplotlib
+from proyecciones import menu_proyecciones
+from reportes import menu_reportes
+from notas import menu_notas
+from alertas import menu_alertas, mostrar_banner_alertas, SistemaAlertas
+from graficos import menu_graficos, verificar_matplotlib
+
+# Imports de utilidades
+from queries import queries
 
 
 # ===================================================================
@@ -122,6 +123,7 @@ def menu_operaciones():
         opcion = input("\nSelecciona: ").strip()
         
         if opcion == "1":
+            from operador import modulo_operador
             modulo_operador()
         elif opcion == "2":
             menu_operador_avanzado()
@@ -267,6 +269,7 @@ def mostrar_estadisticas_detalladas():
         print(f"   Límites de ventas: {config['limite_ventas_min']}-{config['limite_ventas_max']}/día")
     
     # Alertas pendientes
+    from alertas import SistemaAlertas
     sistema_alertas = SistemaAlertas()
     num_alertas = sistema_alertas.contar_alertas_no_leidas()
     
@@ -326,7 +329,7 @@ def menu_ayuda():
    • Útil para mejorar estrategias
 
 📁 ARCHIVOS IMPORTANTES:
-   • data/arbitraje.db - Base de datos principal
+   • arbitraje.db - Base de datos principal
    • logs/ - Registro de todas las operaciones
    • backups/ - Copias de seguridad
    • reportes/ - Reportes exportados
@@ -410,6 +413,7 @@ def confirmar_salida():
             print()
     
     # Alertas pendientes
+    from alertas import SistemaAlertas
     sistema_alertas = SistemaAlertas()
     num_alertas = sistema_alertas.contar_alertas_no_leidas()
     
@@ -442,12 +446,12 @@ def inicializar_sistema():
             print("\n❌ ERROR: No se pudo conectar a la base de datos")
             print("\n💡 Solución:")
             print("   1. Ejecuta: python inicializar_bd.py")
-            print("   2. Si el problema persiste, verifica que data/arbitraje.db existe")
+            print("   2. Si el problema persiste, verifica que arbitraje.db existe")
             sys.exit(1)
         
         # Verificar estructura de directorios
         from pathlib import Path
-        directorios = ['logs', 'backups', 'reportes', 'graficos', 'data']
+        directorios = ['logs', 'backups', 'reportes', 'graficos']
         for directorio in directorios:
             Path(directorio).mkdir(exist_ok=True)
         
